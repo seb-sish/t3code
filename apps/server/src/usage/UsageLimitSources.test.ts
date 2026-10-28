@@ -23,6 +23,7 @@ it.effect("keeps malformed source URLs encodable for config subscribers", () =>
       "Named hub",
       "hub.test:8317",
       "Usage limit source",
+      "MiniMax M Plan",
     ]);
     expect(() =>
       encodeConfigEvent({
@@ -31,9 +32,12 @@ it.effect("keeps malformed source URLs encodable for config subscribers", () =>
         payload: { sources: snapshots },
       }),
     ).not.toThrow();
-    expect(snapshots.every((source) => source.error === "No management key configured.")).toBe(
-      true,
-    );
+    expect(
+      snapshots
+        .filter((source) => source.kind === "cliproxy")
+        .every((source) => source.error === "No management key configured."),
+    ).toBe(true);
+    expect(snapshots.at(-1)?.error).toBe("No Subscription Key configured.");
   }).pipe(
     Effect.provide([
       ServerSettings.layerTest({
@@ -66,6 +70,12 @@ it.effect("keeps malformed source URLs encodable for config subscribers", () =>
           [UsageLimitSourceId.make(" ")]: {
             kind: "cliproxy",
             url: "localhost:8317",
+            managementKey: "",
+            enabled: true,
+          },
+          [UsageLimitSourceId.make("minimax")]: {
+            kind: "minimax",
+            url: "https://www.minimax.io",
             managementKey: "",
             enabled: true,
           },

@@ -1,4 +1,8 @@
-import { type EnvironmentId, UsageLimitSourceId } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  type UsageLimitSourceConfig,
+  UsageLimitSourceId,
+} from "@t3tools/contracts";
 import { useState } from "react";
 
 import { useUpdateEnvironmentSettings } from "../../hooks/useSettings";
@@ -15,8 +19,9 @@ import {
 import { Input } from "../ui/input";
 import { SecretInput } from "./SecretInput";
 import { Label } from "../ui/label";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 
-function sourceIdFromUrl(url: string): UsageLimitSourceId {
+function sourceIdFromUrl(url: string, kind: UsageLimitSourceConfig["kind"]): UsageLimitSourceId {
   let host = url;
   try {
     host = new URL(url).host;
@@ -25,7 +30,7 @@ function sourceIdFromUrl(url: string): UsageLimitSourceId {
     .toLowerCase()
     .replace(/[^a-z0-9.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return UsageLimitSourceId.make(`cliproxy-${slug || "hub"}`);
+  return UsageLimitSourceId.make(`${kind}-${slug || "hub"}`);
 }
 
 /** Send the management key once to server secret storage; settings retain only a redaction marker. */
@@ -41,13 +46,16 @@ export function AddUsageLimitSourceDialog({
   readonly environmentLabel: string;
 }) {
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
+  const [kind, setKind] = useState<UsageLimitSourceConfig["kind"]>("cliproxy");
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
   const [managementKey, setManagementKey] = useState("");
-  const trimmedUrl = url.trim();
+  const isMinimax = kind === "minimax";
+  const trimmedUrl = isMinimax ? "https://www.minimax.io" : url.trim();
   const canSave = trimmedUrl.length > 0 && managementKey.trim().length > 0;
 
   const reset = () => {
+    setKind("cliproxy");
     setLabel("");
     setUrl("");
     setManagementKey("");
@@ -55,12 +63,16 @@ export function AddUsageLimitSourceDialog({
 
   const save = () => {
     if (!canSave) return;
-    const id = sourceIdFromUrl(trimmedUrl);
+    const id = sourceIdFromUrl(trimmedUrl, kind);
     updateSettings({
       usageLimitSources: {
         [id]: {
-          kind: "cliproxy",
-          ...(label.trim() ? { label: label.trim() } : {}),
+          kind,
+          ...(label.trim()
+            ? { label: label.trim() }
+            : isMinimax
+              ? { label: "MiniMax M Plan" }
+              : {}),
           url: trimmedUrl,
           managementKey: managementKey.trim(),
           enabled: true,
@@ -81,10 +93,9 @@ export function AddUsageLimitSourceDialog({
     >
       <DialogPopup className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Add a CLIProxyAPI hub</DialogTitle>
+          <DialogTitle>Add a quota source</DialogTitle>
           <DialogDescription>
-            Show the quota of every account the hub pools, next to the providers on{" "}
-            {environmentLabel}. The key stays on that server.
+            Show subscription quotas on {environmentLabel}. The key stays on that server.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -96,17 +107,41 @@ export function AddUsageLimitSourceDialog({
             }}
           >
             <div className="grid gap-1.5">
-              <Label htmlFor="usage-source-url">Hub URL</Label>
-              <Input
-                id="usage-source-url"
-                placeholder="https://hub.example.ts.net:8318"
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                autoFocus
-              />
+              <Label htmlFor="usage-source-kind">Source</Label>
+              <Select
+                value={kind}
+                onValueChange={(value) => {
+                  if (value === "cliproxy" || value === "minimax") {
+                    setKind(value);
+                    setManagementKey("");
+                  }
+                }}
+              >
+                <SelectTrigger id="usage-source-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="cliproxy">CLIProxyAPI hub</SelectItem>
+                  <SelectItem value="minimax">MiniMax M Plan</SelectItem>
+                </SelectPopup>
+              </Select>
             </div>
+            {!isMinimax ? (
+              <div className="grid gap-1.5">
+                <Label htmlFor="usage-source-url">Hub URL</Label>
+                <Input
+                  id="usage-source-url"
+                  placeholder="https://hub.example.ts.net:8318"
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  autoFocus
+                />
+              </div>
+            ) : null}
             <div className="grid gap-1.5">
-              <Label htmlFor="usage-source-key">Management key</Label>
+              <Label htmlFor="usage-source-key">
+                {isMinimax ? "Subscription Key" : "Management key"}
+              </Label>
               <SecretInput
                 id="usage-source-key"
                 value={managementKey}
@@ -117,7 +152,7 @@ export function AddUsageLimitSourceDialog({
               <Label htmlFor="usage-source-label">Label (optional)</Label>
               <Input
                 id="usage-source-label"
-                placeholder="Defaults to the hub's host name"
+                placeholder={isMinimax ? "MiniMax M Plan" : "Defaults to the hub's host name"}
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
               />
@@ -135,7 +170,7 @@ export function AddUsageLimitSourceDialog({
             Cancel
           </Button>
           <Button onClick={save} disabled={!canSave}>
-            Add hub
+            Add source
           </Button>
         </DialogFooter>
       </DialogPopup>

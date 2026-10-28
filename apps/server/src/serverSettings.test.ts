@@ -1186,6 +1186,12 @@ it.layer(NodeServices.layer)("server settings", (it) => {
               managementKey: "quota-secret",
               enabled: true,
             },
+            [UsageLimitSourceId.make("minimax")]: {
+              kind: "minimax",
+              url: "https://www.minimax.io",
+              managementKey: "minimax-test-secret",
+              enabled: true,
+            },
           },
           easDeviceHosts: [
             {
@@ -1206,6 +1212,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           "bitbucket-secret",
           "gitcafe-secret",
           "quota-secret",
+          "minimax-test-secret",
           "expo-secret",
         ];
         const client = ServerSettingsModule.redactServerSettingsForClient(saved);
@@ -1271,6 +1278,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           }),
           sourceControlHostSecretName({ kind: "gitcafe", field: "token", serverHost: null }),
           "usage-limit-source-aHVi",
+          "usage-limit-source-bWluaW1heA",
         ];
         for (const name of secretNames) {
           assert.isTrue(Option.isSome(yield* store.get(name)), name);
@@ -1282,7 +1290,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             bitbucket: { accessToken: "" },
             gitcafe: { token: "" },
           },
-          usageLimitSources: { [UsageLimitSourceId.make("hub")]: null },
+          usageLimitSources: {
+            [UsageLimitSourceId.make("hub")]: null,
+            [UsageLimitSourceId.make("minimax")]: null,
+          },
         });
         for (const name of secretNames) {
           assert.isTrue(Option.isNone(yield* store.get(name)));

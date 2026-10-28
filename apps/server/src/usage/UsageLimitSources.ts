@@ -23,6 +23,7 @@ import * as Stream from "effect/Stream";
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as Settings from "../serverSettings.ts";
 import { makeCliproxyApi } from "./cliproxyApi.ts";
+import { makeMinimaxApi } from "./minimaxApi.ts";
 
 export class UsageLimitSources extends Context.Service<
   UsageLimitSources,
@@ -38,6 +39,7 @@ export class UsageLimitSources extends Context.Service<
 
 function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
   if (config.label) return config.label;
+  if (config.kind === "minimax") return "MiniMax M Plan";
   const fallback = id.trim() || "Usage limit source";
   try {
     return new URL(config.url).host || fallback;
@@ -49,6 +51,7 @@ function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
 /** @public */
 export const make = Effect.gen(function* () {
   const api = yield* makeCliproxyApi;
+  const minimax = yield* makeMinimaxApi;
   const settingsService = yield* Settings.ServerSettingsService;
   const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
   const stateRef = yield* Ref.make<ReadonlyArray<UsageLimitSourceSnapshot>>([]);
@@ -64,9 +67,20 @@ export const make = Effect.gen(function* () {
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
     const base = { id, kind: config.kind, label: sourceLabel(id, config), checkedAt } as const;
     if (config.managementKey.length === 0) {
-      return { ...base, accounts: [], error: "No management key configured." };
+      return {
+        ...base,
+        accounts: [],
+        error:
+          config.kind === "minimax"
+            ? "No Subscription Key configured."
+            : "No management key configured.",
+      };
     }
-    const accounts = yield* api.readAccounts(config).pipe(Effect.result);
+    const accounts = yield* (
+      config.kind === "minimax"
+        ? minimax.readAccounts(config.managementKey)
+        : api.readAccounts(config)
+    ).pipe(Effect.result);
     if (accounts._tag === "Failure") {
       yield* Effect.logDebug("usage limit source read failed", { id, cause: accounts.failure });
       return { ...base, accounts: [], error: accounts.failure.detail };
@@ -108,7 +122,7 @@ export const make = Effect.gen(function* () {
       Effect.mapError(() => new UsageLimitSourceError({ detail: "Could not read hub settings." })),
     );
     const config = settings.usageLimitSources[input.sourceId];
-    if (!config?.enabled || !config.managementKey) {
+    if (!config?.enabled || !config.managementKey || config.kind !== "cliproxy") {
       return yield* new UsageLimitSourceError({
         detail: "The usage limit source is missing or disabled.",
       });

@@ -136,7 +136,7 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 
 ## Connect a CLIProxyAPI hub
 
-To see pooled accounts, open **Settings → Providers → Usage providers → Add hub**. Choose the
+To see pooled accounts, open **Settings → Providers → Usage providers → Add source**, then select **CLIProxyAPI hub**. Choose the
 environment that will connect to the hub and enter its URL and management key.
 
 The accounts appear under **Usage → Limits**. Codex accounts show banked reset credits; select an
@@ -145,6 +145,18 @@ account and choose **Use reset** to redeem one. No hub plugin is required.
 This connection supplies usage information; configure
 the provider separately to send agent requests through the hub. Remove the hub from the same
 settings section when you no longer need it.
+
+## MiniMax M Plan
+
+Open **Settings → Providers → Usage providers → Add source**, choose **MiniMax M Plan**, and enter
+your Subscription Key on the environment that should read the quotas. The key stays in that
+server's secret storage. This adds quota monitoring; it does not configure a model provider.
+
+The general category's available five-hour and weekly quotas appear under **Usage → Limits** and
+below the chat history on web and desktop. The sidebar also shows Codex quotas and only the Gemini
+quotas of Antigravity. Other Antigravity quotas remain available on the full Usage page.
+Reset times and the last successful reading are shown; refresh provider status on Usage to request
+new readings. A source that cannot report quotas shows an error instead of an estimated balance.
 
 ## Subscription usage widget
 
