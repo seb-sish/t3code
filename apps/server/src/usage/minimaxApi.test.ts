@@ -2,6 +2,8 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
 
 import { makeMinimaxApi } from "./minimaxApi.ts";
@@ -92,34 +94,94 @@ describe("MiniMax M Plan quotas", () => {
     }),
   );
 
+  it.effect("preserves the timeout cause without exposing request credentials", () =>
+    Effect.gen(function* () {
+      const api = yield* makeMinimaxApi.pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make(() => Effect.never),
+        ),
+        Effect.provide(NodeCrypto.layer),
+      );
+      const fiber = yield* api
+        .readAccounts("subscription-test-key")
+        .pipe(Effect.result, Effect.forkChild);
+      yield* TestClock.adjust("20 seconds");
+      const result = yield* Fiber.join(fiber);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure.stage).toBe("request");
+        expect(result.failure.cause).toMatchObject({ _tag: "TimeoutError" });
+        expect(result.failure.message).not.toContain("subscription-test-key");
+      }
+    }),
+  );
+
+  it.effect("preserves JSON decoding failures without exposing the response body", () =>
+    Effect.gen(function* () {
+      const api = yield* makeMinimaxApi.pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(request, new Response("sensitive-test-body")),
+            ),
+          ),
+        ),
+        Effect.provide(NodeCrypto.layer),
+      );
+      const result = yield* api.readAccounts("subscription-test-key").pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure.stage).toBe("json");
+        expect(result.failure.cause).toBeDefined();
+        expect(result.failure.message).not.toContain("sensitive-test-body");
+      }
+    }),
+  );
+
   it.effect.each([
-    ["HTTP authorization failure", { message: "Bearer subscription-test-key" }, 401],
-    ["redirect", payload, 302],
+    ["HTTP authorization failure", { message: "Bearer subscription-test-key" }, 401, "http"],
+    ["redirect", payload, 302, "http"],
     [
       "API failure",
-      { ...payload, base_resp: { status_code: 1004, status_msg: "subscription-test-key" } },
+      { base_resp: { status_code: 1004, status_msg: "subscription-test-key" } },
       200,
+      "api",
     ],
-    ["missing category", { model_remains: [{ model_name: "video" }] }, 200],
+    ["missing category", { model_remains: [{ model_name: "video" }] }, 200, "quota"],
     [
       "invalid percentage",
       { model_remains: [{ ...general, current_interval_remaining_percent: 101 }] },
       200,
+      "decode",
     ],
     [
       "unavailable plan",
       { model_remains: [{ ...general, current_interval_status: 3, current_weekly_status: 3 }] },
       200,
+      "quota",
     ],
-  ] as const)("reports %s without exposing the key or response", ([_name, response, status]) =>
-    Effect.gen(function* () {
-      const api = yield* fixture(response, status);
-      const result = yield* api.readAccounts("subscription-test-key").pipe(Effect.result);
-      expect(result._tag).toBe("Failure");
-      if (result._tag === "Failure") {
-        expect(result.failure._tag).toBe("UsageLimitSourceError");
-        expect(result.failure.detail).not.toContain("subscription-test-key");
-      }
-    }),
+  ] as const)(
+    "reports %s without exposing the key or response",
+    ([_name, response, status, stage]) =>
+      Effect.gen(function* () {
+        const api = yield* fixture(response, status);
+        const result = yield* api.readAccounts("subscription-test-key").pipe(Effect.result);
+        expect(result._tag).toBe("Failure");
+        if (result._tag === "Failure") {
+          expect(result.failure._tag).toBe("MinimaxQuotaReadError");
+          expect(result.failure.stage).toBe(stage);
+          expect(result.failure.message).not.toContain("subscription-test-key");
+          if (stage === "http") {
+            expect(result.failure.httpStatus).toBe(status);
+            expect(result.failure.cause).toBeDefined();
+          } else if (stage === "api") {
+            expect(result.failure.apiCode).toBe(1004);
+          } else if (stage === "decode") {
+            expect(result.failure.cause).toBeDefined();
+          }
+        }
+      }),
   );
 });

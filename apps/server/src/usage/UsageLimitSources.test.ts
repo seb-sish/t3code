@@ -4,13 +4,64 @@ import { ServerConfigStreamEvent, UsageLimitSourceId } from "@t3tools/contracts"
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { HttpClient } from "effect/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
 
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as UsageLimitSources from "./UsageLimitSources.ts";
 
 const encodeConfigEvent = Schema.encodeSync(ServerConfigStreamEvent);
+
+it.effect("exposes only a safe MiniMax failure message in source snapshots", () =>
+  Effect.gen(function* () {
+    const sources = yield* UsageLimitSources.make;
+    yield* sources.refresh;
+    const snapshots = yield* sources.current;
+    expect(snapshots[0]?.error).toBe(
+      "Could not read MiniMax M Plan quotas. Check the Subscription Key and plan.",
+    );
+    expect(snapshots[0]?.accounts).toEqual([]);
+    const encoded = encodeConfigEvent({
+      version: 1,
+      type: "usageLimitSourcesUpdated",
+      payload: { sources: snapshots },
+    });
+    expect(JSON.stringify(encoded)).not.toContain("sensitive-test-response");
+    expect(JSON.stringify(encoded)).not.toContain("subscription-test-key");
+  }).pipe(
+    Effect.provide([
+      ServerSettings.layerTest({
+        usageLimitSources: {
+          [UsageLimitSourceId.make("minimax")]: {
+            kind: "minimax",
+            url: "https://www.minimax.io",
+            managementKey: "subscription-test-key",
+            enabled: true,
+          },
+        },
+      }),
+      Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+        shouldRunScopeWork: () => Effect.succeed(false),
+      }),
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              Response.json({
+                base_resp: { status_code: 1004, status_msg: "sensitive-test-response" },
+                model_remains: [],
+              }),
+            ),
+          ),
+        ),
+      ),
+      NodeCrypto.layer,
+    ]),
+    Effect.scoped,
+  ),
+);
 
 it.effect("keeps malformed source URLs encodable for config subscribers", () =>
   Effect.gen(function* () {

@@ -78,7 +78,17 @@ export const make = Effect.gen(function* () {
     }
     const accounts = yield* (
       config.kind === "minimax"
-        ? minimax.readAccounts(config.managementKey)
+        ? minimax.readAccounts(config.managementKey).pipe(
+            Effect.tapError((error) =>
+              Effect.logDebug("MiniMax quota read failed", {
+                id,
+                stage: error.stage,
+                httpStatus: error.httpStatus,
+                apiCode: error.apiCode,
+              }),
+            ),
+            Effect.mapError((error) => new UsageLimitSourceError({ detail: error.message })),
+          )
         : api.readAccounts(config)
     ).pipe(Effect.result);
     if (accounts._tag === "Failure") {
