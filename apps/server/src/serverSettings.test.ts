@@ -9,6 +9,7 @@ import {
   resolveProviderInstanceEnabled,
   ServerSettings,
   UsageLimitSourceId,
+  UsageLimitSourceConfig,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
@@ -32,6 +33,39 @@ import * as ServerSettingsModule from "./serverSettings.ts";
 import { resolveProviderInstanceTerminalEnvironment } from "./terminal/Manager.ts";
 
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
+const encodeServerSettings = Schema.encodeSync(ServerSettings);
+const legacySourceConfig = Schema.Struct({
+  ...UsageLimitSourceConfig.fields,
+  kind: Schema.Literal("cliproxy"),
+});
+const decodeLegacyServerSettings = Schema.decodeUnknownSync(
+  ServerSettings.mapFields((fields) => ({
+    ...fields,
+    usageLimitSources: Schema.Record(UsageLimitSourceId, legacySourceConfig),
+  })),
+);
+
+it("keeps settings decodable by clients released before MiniMax support", () => {
+  const minimaxId = UsageLimitSourceId.make("minimax");
+  const proxyId = UsageLimitSourceId.make("proxy");
+  const source = { url: "https://quota.example.test", managementKey: "test-secret", enabled: true };
+  const settings = {
+    ...DEFAULT_SERVER_SETTINGS,
+    usageLimitSources: {
+      [minimaxId]: { ...source, kind: "minimax" as const },
+      [proxyId]: { ...source, kind: "cliproxy" as const },
+    },
+  };
+  const legacy = ServerSettingsModule.redactServerSettingsForClient(settings, false);
+  const wire = encodeServerSettings(legacy);
+  assert.doesNotThrow(() => decodeLegacyServerSettings(wire));
+  assert.deepEqual(Object.keys(legacy.usageLimitSources), [proxyId]);
+  assert.notInclude(JSON.stringify(legacy), "test-secret");
+  assert.equal(settings.usageLimitSources[minimaxId]?.managementKey, "test-secret");
+  const current = ServerSettingsModule.redactServerSettingsForClient(settings, true);
+  assert.equal(current.usageLimitSources[minimaxId]?.kind, "minimax");
+  assert.notInclude(JSON.stringify(current), "test-secret");
+});
 const decodeServerSettingsJson = Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings));
 
 const layerServerSettings = () =>

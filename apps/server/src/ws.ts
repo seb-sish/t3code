@@ -1239,6 +1239,7 @@ export const layerWsRpc = (
   Layer.effectContext(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
+      const minimaxUsageLimits = yield* Ref.make(false);
       const sql = yield* SqlClient.SqlClient;
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
       const intakeContext = yield* Effect.context<
@@ -1737,6 +1738,7 @@ export const layerWsRpc = (
           : commandProviders;
         const settings = ServerSettings.redactServerSettingsForClient(
           yield* serverSettings.getSettings,
+          yield* Ref.get(minimaxUsageLimits),
         );
         const environment = yield* serverEnvironment.getDescriptor;
         const auth = yield* serverAuth.getDescriptor();
@@ -2536,7 +2538,15 @@ export const layerWsRpc = (
         [WS_METHODS.serverGetStorageCleanupReport]: () => storageCleanup.reports,
         [WS_METHODS.serverGetDatabaseStorage]: () => databaseStorage.status,
         [WS_METHODS.serverGetSettings]: (_input) =>
-          serverSettings.getSettings.pipe(Effect.map(ServerSettings.redactServerSettingsForClient)),
+          serverSettings.getSettings.pipe(
+            Effect.flatMap((settings) =>
+              Ref.get(minimaxUsageLimits).pipe(
+                Effect.map((includeMinimax) =>
+                  ServerSettings.redactServerSettingsForClient(settings, includeMinimax),
+                ),
+              ),
+            ),
+          ),
         [WS_METHODS.serverUpdateSettings]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
           Effect.fnUntraced(function* ({ patch, providerInstanceMutation }) {
@@ -2549,7 +2559,10 @@ export const layerWsRpc = (
             const settings = yield* providerInstanceMutation === undefined
               ? serverSettings.updateSettings(nextPatch)
               : serverSettings.updateProviderInstance(providerInstanceMutation, nextPatch);
-            return ServerSettings.redactServerSettingsForClient(settings);
+            return ServerSettings.redactServerSettingsForClient(
+              settings,
+              yield* Ref.get(minimaxUsageLimits),
+            );
           }),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) => sourceControlDiscovery.discover,
         [WS_METHODS.serverGetTraceDiagnostics]: (_input) =>
@@ -3117,6 +3130,7 @@ export const layerWsRpc = (
         [WS_METHODS.subscribeServerConfig]: (input) =>
           Stream.unwrap(
             Effect.gen(function* () {
+              if (input.minimaxUsageLimits === true) yield* Ref.set(minimaxUsageLimits, true);
               const usageLimitsCommand = input.usageLimitsCommand === true;
               const workspaceSnapshotsOnDemand = input.workspaceSnapshotsOnDemand === true;
               // Buffer changes through discovery and the initial snapshot's RPC ACK wait.
@@ -3192,7 +3206,13 @@ export const layerWsRpc = (
                     )
                   : Stream.empty;
               const settingsUpdates = settingsChanges.pipe(
-                Stream.map((settings) => ServerSettings.redactServerSettingsForClient(settings)),
+                Stream.mapEffect((settings) =>
+                  Ref.get(minimaxUsageLimits).pipe(
+                    Effect.map((includeMinimax) =>
+                      ServerSettings.redactServerSettingsForClient(settings, includeMinimax),
+                    ),
+                  ),
+                ),
                 Stream.map((settings) => ({
                   version: 1 as const,
                   type: "settingsUpdated" as const,

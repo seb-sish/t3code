@@ -7,6 +7,7 @@ import {
   ThreadId,
   ProviderDriverKind,
   ProviderInstanceId,
+  UsageLimitSourceId,
   WS_METHODS,
   WsServerRefreshProvidersRpc,
   WsSubscribeServerConfigRpc,
@@ -475,12 +476,22 @@ const layerConfigSources = Layer.mergeAll(
   Layer.provideMerge(NodeServices.layer),
 );
 
-it.effect(
-  "preserves settings during discovery and keybindings during snapshot ACK at the config RPC boundary",
-  () =>
+it.effect.each([false, true])(
+  "preserves settings during discovery and keybindings during snapshot ACK at the config RPC boundary (MiniMax: %s)",
+  (includeMinimax) =>
     Effect.gen(function* () {
       const keybindings = yield* Keybindings.Keybindings;
       const settings = yield* ServerSettings.ServerSettingsService;
+      yield* settings.updateSettings({
+        usageLimitSources: {
+          [UsageLimitSourceId.make("minimax")]: {
+            kind: "minimax",
+            url: "https://www.minimax.io",
+            managementKey: "",
+            enabled: true,
+          },
+        },
+      });
       const keybindingsSubscribed = yield* Deferred.make<void>();
       const settingsSubscribed = yield* Deferred.make<void>();
       const keybindingsChanges = keybindings.subscribeChanges.pipe(
@@ -581,7 +592,7 @@ it.effect(
         _tag: "Request",
         id: requestId,
         tag: WS_METHODS.subscribeServerConfig,
-        payload: {},
+        payload: includeMinimax ? { minimaxUsageLimits: true } : {},
         headers: Headers.empty,
       });
       yield* Deferred.await(discoveryStarted);
@@ -592,6 +603,10 @@ it.effect(
       assert.equal(snapshot.type, "snapshot");
       if (snapshot.type !== "snapshot") return yield* Effect.die("Missing initial snapshot");
       assert.isFalse(snapshot.config.settings.defaultAutoPull);
+      assert.equal(
+        snapshot.config.settings.usageLimitSources[UsageLimitSourceId.make("minimax")]?.kind,
+        includeMinimax ? "minimax" : undefined,
+      );
       assert.deepEqual(snapshot.config.keybindings, initialKeybindings);
       const duringAck = yield* keybindings.upsertKeybindingRule({
         key: "mod+alt+y",
@@ -607,8 +622,8 @@ it.effect(
         key: "mod+alt+z",
         command: "terminal.split",
       });
-      const expectedSettings = [duringDiscovery, latestSettings].map(
-        ServerSettings.redactServerSettingsForClient,
+      const expectedSettings = [duringDiscovery, latestSettings].map((settings) =>
+        ServerSettings.redactServerSettingsForClient(settings, includeMinimax),
       );
       const expectedKeybindings = [duringAck, latestKeybindings];
       // The two sources can interleave, but each must retain its own publication order.

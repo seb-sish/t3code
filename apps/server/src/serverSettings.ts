@@ -127,12 +127,25 @@ const normalizeServerSettings = (
     ),
   );
 
-export function redactServerSettingsForClient(settings: ServerSettings): ServerSettings {
-  return mapSettingsSecrets(settings, (secret) =>
+export function redactServerSettingsForClient(
+  settings: ServerSettings,
+  includeMinimax = true,
+): ServerSettings {
+  const redacted = mapSettingsSecrets(settings, (secret) =>
     secret.sensitive
       ? { value: "", redacted: secret.redacted || secret.value.length > 0 }
       : { value: secret.value, redacted: false },
   );
+  return includeMinimax
+    ? redacted
+    : {
+        ...redacted,
+        usageLimitSources: Object.fromEntries(
+          Object.entries(redacted.usageLimitSources).filter(
+            ([, source]) => source.kind !== "minimax",
+          ),
+        ),
+      };
 }
 
 export function applyProviderInstanceMutation(

@@ -602,6 +602,7 @@ describe("RpcSessionFactory", () => {
         const { factory, sockets } = yield* makeFactory({
           environmentThemes: true,
           usageLimitSources: true,
+          minimaxUsageLimits: true,
         });
         const session = yield* factory.connect(PREPARED);
         const readyFiber = yield* Effect.forkChild(session.ready);
@@ -610,6 +611,7 @@ describe("RpcSessionFactory", () => {
         yield* completeInitialConfig(socket, encodeServerConfig(SOURCE_SERVER_CONFIG), {
           environmentThemes: true,
           usageLimitSources: true,
+          minimaxUsageLimits: true,
         });
         yield* Fiber.join(readyFiber);
 
@@ -617,7 +619,11 @@ describe("RpcSessionFactory", () => {
         const releaseSlowSubscriber = yield* Deferred.make<void>();
         let firstEvent = true;
         const slowSubscriber = yield* session
-          .subscribeServerConfig({ environmentThemes: true, usageLimitSources: true })
+          .subscribeServerConfig({
+            environmentThemes: true,
+            usageLimitSources: true,
+            minimaxUsageLimits: true,
+          })
           .pipe(
             Stream.mapEffect((event) => {
               if (!firstEvent) return Effect.succeed(event);
@@ -673,7 +679,11 @@ describe("RpcSessionFactory", () => {
         const allEvents = [...themeEvents, ...sourceEvents, ...settingsEvents];
         const observedByFastSubscriber = yield* Queue.unbounded<ServerConfigStreamEventType>();
         yield* session
-          .subscribeServerConfig({ environmentThemes: true, usageLimitSources: true })
+          .subscribeServerConfig({
+            environmentThemes: true,
+            usageLimitSources: true,
+            minimaxUsageLimits: true,
+          })
           .pipe(
             Stream.runForEach((event) => Queue.offer(observedByFastSubscriber, event)),
             Effect.forkChild,

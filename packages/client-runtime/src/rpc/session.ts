@@ -59,6 +59,7 @@ export interface RpcSession {
 export interface RpcSessionOptions {
   readonly environmentThemes?: boolean;
   readonly usageLimitSources?: boolean;
+  readonly minimaxUsageLimits?: boolean;
   readonly usageLimitsCommand?: boolean;
 }
 
@@ -168,6 +169,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
   const serverConfigInput: ServerConfigSubscriptionInput = {
     ...(options.environmentThemes === true ? { environmentThemes: true } : {}),
     ...(options.usageLimitSources === true ? { usageLimitSources: true } : {}),
+    ...(options.minimaxUsageLimits === true ? { minimaxUsageLimits: true } : {}),
     ...(options.usageLimitsCommand === true ? { usageLimitsCommand: true } : {}),
   };
   // Config state merges the snapshots it fetches back in, so no subscriber needs them broadcast.
