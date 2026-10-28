@@ -228,6 +228,38 @@ describe("Antigravity subscription limits", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("fills missing Gemini quotas when the summary only reports Claude and GPT", () =>
+    Effect.gen(function* () {
+      const { probe } = yield* fixture({
+        summary: {
+          buckets: [{ bucketId: "3p-5h", window: "5h", remainingFraction: 0.3 }],
+        },
+        models: {
+          models: {
+            "gemini-pro": {
+              modelProvider: "MODEL_PROVIDER_GOOGLE",
+              quotaInfo: { remainingFraction: 0.8 },
+              weeklyQuotaInfo: { remainingFraction: 0.6 },
+            },
+            "claude-sonnet": { quotaInfo: { remainingFraction: 0.2 } },
+          },
+        },
+      });
+      const limits = yield* probe;
+      expect(limits.windows.map((window) => window.id).toSorted()).toEqual([
+        "3p-5h",
+        "gemini-quota",
+        "gemini-weekly",
+      ]);
+      expect(
+        limits.windows.find((window) => window.id === "gemini-quota")?.usedPercent,
+      ).toBeCloseTo(20);
+      expect(
+        limits.windows.find((window) => window.id === "gemini-weekly")?.usedPercent,
+      ).toBeCloseTo(40);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("falls back to model quotas without inventing a window duration", () =>
     Effect.gen(function* () {
       const { probe } = yield* fixture({
