@@ -4259,12 +4259,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           }).pipe(Effect.orDie),
         );
 
-        yield* client.handleServerNotification("account/rateLimits/updated", (payload) =>
-          Effect.gen(function* () {
-            yield* Ref.update(rateLimitSnapshot, (previous) =>
-              mergeCodexRateLimits(previous, payload.rateLimits),
+        const updateLimitedTurnResetTimes = Effect.fn("CodexAdapterV2.updateLimitedTurnResetTimes")(
+          function* () {
+            const resetAt = codexUsageLimitResetAt(
+              yield* Ref.get(rateLimitSnapshot),
+              DateTime.formatIso(yield* DateTime.now),
             );
-            const resetAt = codexUsageLimitResetAt(yield* Ref.get(rateLimitSnapshot));
             for (const item of (yield* Ref.get(limitedTurnItems)).values()) {
               if (resetAt === null || item.failure.resetAt != null) continue;
               const updated = {
@@ -4281,6 +4281,15 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 turnItem: updated,
               });
             }
+          },
+        );
+
+        yield* client.handleServerNotification("account/rateLimits/updated", (payload) =>
+          Effect.gen(function* () {
+            yield* Ref.update(rateLimitSnapshot, (previous) =>
+              mergeCodexRateLimits(previous, payload.rateLimits),
+            );
+            yield* updateLimitedTurnResetTimes();
             const update = codexRateLimitsToUpdate(payload.rateLimits);
             if (update && adapterOptions.onUsageLimits) {
               const checkedAt = DateTime.formatIso(yield* DateTime.now);
@@ -5641,6 +5650,25 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             yield* Ref.update(limitedTurnItems, (items) =>
               new Map(items).set(context.providerThread.id, item),
             );
+            if (current.failure.resetAt == null) {
+              // Notification handlers share the response reader, so request usage outside that fiber.
+              yield* client.request("account/rateLimits/read", null).pipe(
+                Effect.timeout("3 seconds"),
+                Effect.flatMap((response) =>
+                  Ref.update(rateLimitSnapshot, (previous) =>
+                    mergeCodexRateLimits(
+                      previous,
+                      response.rateLimitsByLimitId?.codex ?? response.rateLimits,
+                    ),
+                  ),
+                ),
+                Effect.catch((cause) =>
+                  Effect.logDebug("Codex limit recovery usage read failed.", { cause }),
+                ),
+                Effect.andThen(updateLimitedTurnResetTimes()),
+                Effect.forkIn(scope),
+              );
+            }
           }
         });
 

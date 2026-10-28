@@ -155,6 +155,9 @@ server's secret storage. This adds quota monitoring; it does not configure a mod
 The general category's available five-hour and weekly quotas appear under **Usage → Limits** and
 below the chat history on web and desktop. The sidebar also shows Codex quotas and only the Gemini
 quotas of Antigravity. Other Antigravity quotas remain available on the full Usage page.
+While an agent is running, the server refreshes Codex, Antigravity, and configured usage sources
+every five minutes, including when the app is in the background. The extra polling stops while idle.
+
 Reset times and the last successful reading are shown; refresh provider status on Usage to request
 new readings. A source that cannot report quotas shows an error instead of an estimated balance.
 

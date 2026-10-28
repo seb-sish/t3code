@@ -3913,6 +3913,24 @@ describe("CodexAdapterV2 post-settle continuation", () => {
 
   it.effect.each([
     {
+      name: "compact-below-limit",
+      code: "usageLimitExceeded",
+      notification: false,
+      expectedClass: "usage_limit",
+    },
+    {
+      name: "usage-read-failure",
+      code: "usageLimitExceeded",
+      notification: false,
+      expectedClass: "usage_limit",
+    },
+    {
+      name: "late-below-limit",
+      code: "usageLimitExceeded",
+      notification: false,
+      expectedClass: "usage_limit",
+    },
+    {
       name: "usage",
       code: "usageLimitExceeded",
       notification: false,
@@ -3969,7 +3987,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       Effect.gen(function* () {
         const nativeThreadId = `native-limit-${scenario.name}`;
         const nativeTurnId = `turn-limit-${scenario.name}`;
-        const message = "Provider stopped this request.";
+        const message =
+          scenario.name === "compact-below-limit"
+            ? "Error running remote compact task: You’ve hit your usage limit."
+            : "Provider stopped this request.";
         const errorInfo = "errorInfo" in scenario ? scenario.errorInfo : scenario.code;
         const resetAt = "2033-05-19T07:20:00.000Z";
         const snapshot = {
@@ -3980,7 +4001,14 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             params: {
               rateLimits: {
                 limitId: "codex",
-                primary: { usedPercent: 100, resetsAt: 2000100000, windowDurationMins: 300 },
+                primary: {
+                  usedPercent:
+                    scenario.name === "usage-read-failure" || scenario.name === "late-below-limit"
+                      ? 99
+                      : 100,
+                  resetsAt: 2000100000,
+                  windowDurationMins: 300,
+                },
               },
             },
           },
@@ -3989,7 +4017,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           scenario: `codex-limit-${scenario.name}`,
           entries: [
             ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Continue." }),
-            ...(scenario.name === "deferred-reset" ? [snapshot] : []),
+            ...(scenario.name === "deferred-reset" || scenario.name === "usage-read-failure"
+              ? [snapshot]
+              : []),
             ...(scenario.name === "deferred-reset"
               ? [
                   {
@@ -4073,7 +4103,47 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                 },
               },
             },
-            ...(scenario.name === "late-reset" ? [snapshot] : []),
+            ...(scenario.expectedClass === "usage_limit" && scenario.name !== "deferred-reset"
+              ? [
+                  {
+                    type: "expect_outbound" as const,
+                    label: "account/rateLimits/read",
+                    frame: { id: 4, method: "account/rateLimits/read", params: null },
+                  },
+                  {
+                    type: "emit_inbound" as const,
+                    label: "account/rateLimits/read/result",
+                    frame:
+                      scenario.name === "usage-read-failure"
+                        ? {
+                            id: 4,
+                            error: { code: -32603, message: "Usage temporarily unavailable." },
+                          }
+                        : {
+                            id: 4,
+                            result: {
+                              rateLimits: {
+                                limitId: "codex",
+                                primary:
+                                  scenario.name === "compact-below-limit"
+                                    ? {
+                                        usedPercent: 98,
+                                        resetsAt: 2000100000,
+                                        windowDurationMins: 300,
+                                      }
+                                    : null,
+                                secondary: null,
+                                credits: null,
+                                planType: null,
+                              },
+                            },
+                          },
+                  },
+                ]
+              : []),
+            ...(scenario.name === "late-reset" || scenario.name === "late-below-limit"
+              ? [snapshot]
+              : []),
             ...(scenario.name === "deferred-reset"
               ? [
                   {
@@ -4136,7 +4206,11 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         if (scenario.name === "deferred-reset") assert.equal(terminal.failure.resetAt, resetAt);
         if (scenario.name === "matching-details")
           assert.equal(terminal.failure.message, "Detailed provider allowance explanation.");
-        if (scenario.name === "late-reset") {
+        if (
+          ["late-reset", "compact-below-limit", "usage-read-failure", "late-below-limit"].includes(
+            scenario.name,
+          )
+        ) {
           yield* Deferred.await(resetReceipt);
           const item = harness.events.find(
             (event) =>

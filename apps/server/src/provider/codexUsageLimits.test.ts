@@ -286,6 +286,33 @@ describe("mergeCodexRateLimits", () => {
 import { codexUsageLimitResetAt } from "./codexUsageLimits.ts";
 
 describe("codexUsageLimitResetAt", () => {
+  it("uses the next reported reset after a refusal below 100%, without inventing a date", () => {
+    const snapshot = {
+      primary: { usedPercent: 98, resetsAt: 2000000000 },
+      secondary: { usedPercent: 80, resetsAt: 2000100000 },
+    };
+    expect(codexUsageLimitResetAt(snapshot, "2033-05-18T03:00:00.000Z")).toBe(
+      "2033-05-18T03:33:20.000Z",
+    );
+    expect(codexUsageLimitResetAt(snapshot, "2033-05-18T04:00:00.000Z")).toBe(
+      "2033-05-19T07:20:00.000Z",
+    );
+    expect(codexUsageLimitResetAt(snapshot, "2033-05-20T00:00:00.000Z")).toBeNull();
+    expect(codexUsageLimitResetAt(undefined, checkedAt)).toBeNull();
+    expect(codexUsageLimitResetAt({ primary: { usedPercent: 99 } }, checkedAt)).toBeNull();
+    expect(
+      codexUsageLimitResetAt(
+        { ...snapshot, rateLimitReachedType: "workspace_owner_credits_depleted" },
+        checkedAt,
+      ),
+    ).toBeNull();
+    expect(
+      codexUsageLimitResetAt({ ...snapshot, secondary: { usedPercent: 100 } }, checkedAt),
+    ).toBeNull();
+    expect(
+      codexUsageLimitResetAt({ primary: { usedPercent: 0, resetsAt: 2000000000 } }, checkedAt),
+    ).toBeNull();
+  });
   it("waits for every exhausted window and never invents an unknown reset", () => {
     expect(
       codexUsageLimitResetAt({

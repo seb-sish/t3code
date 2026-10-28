@@ -215,12 +215,29 @@ export function codexUsageLimitMessage(
   return `Codex usage limit reached.${reset}${codexUsageLimitNextStep(snapshot?.rateLimitReachedType)}`;
 }
 
-/** All exhausted windows must reset before a continuation can run. */
+/** Exhausted windows take precedence; after a refusal, a reported reset is also a retry opportunity. */
 export function codexUsageLimitResetAt(
   snapshot: CodexRateLimitSnapshot | undefined,
+  failedAt?: string,
 ): string | null {
   if (!snapshot) return null;
-  const windows = codexRateLimitsToWindows(snapshot).filter((window) => window.usedPercent >= 100);
+  const reported = codexRateLimitsToWindows(snapshot);
+  const windows = reported.filter((window) => window.usedPercent >= 100);
+  // shortcut: Codex can refuse below 100%; the next reported reset allows a retry, not proof of recovery.
+  if (windows.length === 0 && failedAt !== undefined) {
+    if (
+      snapshot.rateLimitReachedType != null &&
+      snapshot.rateLimitReachedType !== "rate_limit_reached"
+    )
+      return null;
+    const failedMs = Date.parse(failedAt);
+    const futureResets = reported.flatMap((window) =>
+      window.usedPercent > 0 && window.resetsAt && Date.parse(window.resetsAt) > failedMs
+        ? [window.resetsAt]
+        : [],
+    );
+    return futureResets.toSorted((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
+  }
   if (windows.length === 0 || windows.some((window) => !window.resetsAt)) return null;
   return windows.reduce<string | null>(
     (latest, window) =>
