@@ -56,6 +56,7 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as Orchestrator from "../Orchestrator.ts";
+import { limitRecoveryCommand } from "../UsageLimitRecoveryWorker.ts";
 import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
@@ -3911,6 +3912,226 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     ),
   );
 
+  it.effect.each(["known-99", "read-100"] as const)(
+    "persists Codex reset before settling the run from %s evidence",
+    (source) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-limit-recovery-" });
+          const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+          for (const args of [
+            ["init", "--quiet"],
+            [
+              "-c",
+              "user.name=Test",
+              "-c",
+              "user.email=test@example.com",
+              "commit",
+              "--allow-empty",
+              "--quiet",
+              "-m",
+              "Initial commit",
+            ],
+          ]) {
+            assert.equal(
+              Number(yield* spawner.exitCode(ChildProcess.make("git", args, { cwd }))),
+              0,
+            );
+          }
+          const nativeThreadId = `native-persisted-limit-${source}`;
+          const nativeTurnId = `turn-persisted-limit-${source}`;
+          const resetAt = "2033-05-19T07:20:00.000Z";
+          const rateLimits = {
+            limitId: "codex",
+            primary: {
+              usedPercent: source === "known-99" ? 99 : 100,
+              resetsAt: 2000100000,
+              windowDurationMins: 300,
+            },
+          };
+          const transcript = yield* decodeReplayTranscriptJson(
+            (yield* encodeReplayTranscriptJson(
+              makeCodexReplayTranscript({
+                scenario: `codex-persisted-limit-${source}`,
+                entries: [
+                  ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Continue." }),
+                  ...(source === "known-99"
+                    ? [
+                        {
+                          type: "emit_inbound" as const,
+                          label: "known usage",
+                          frame: { method: "account/rateLimits/updated", params: { rateLimits } },
+                        },
+                      ]
+                    : []),
+                  {
+                    type: "emit_inbound",
+                    label: "turn/completed",
+                    frame: {
+                      method: "turn/completed",
+                      params: {
+                        threadId: nativeThreadId,
+                        turn: {
+                          ...makeCodexReplayTurn({ id: nativeTurnId, status: "failed" }),
+                          error: {
+                            message: "You’ve hit your usage limit.",
+                            codexErrorInfo: "usageLimitExceeded",
+                          },
+                        },
+                      },
+                    },
+                  },
+                  ...(source === "read-100"
+                    ? [
+                        {
+                          type: "expect_outbound" as const,
+                          label: "read usage",
+                          frame: { id: 4, method: "account/rateLimits/read", params: null },
+                        },
+                        {
+                          type: "emit_inbound" as const,
+                          label: "usage result",
+                          frame: { id: 4, result: { rateLimits } },
+                        },
+                      ]
+                    : []),
+                ],
+              }),
+            )).replaceAll(yield* encodeStringJson("/workspace"), yield* encodeStringJson(cwd)),
+          );
+          const replayDriver = yield* CodexReplay.makeReplayDriver(transcript);
+          yield* Effect.gen(function* () {
+            const orchestrator = yield* Orchestrator.OrchestratorV2;
+            const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+            const threadId = ThreadId.make(`thread:persisted-limit-${source}`);
+            yield* orchestrator.dispatch({
+              type: "thread.create",
+              commandId: CommandId.make(`${threadId}:create`),
+              threadId,
+              projectId: ProjectId.make(`${threadId}:project`),
+              title: "Limit recovery",
+              modelSelection: CODEX_TEST_MODEL_SELECTION,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: cwd,
+              createdBy: "user",
+              creationSource: "web",
+            });
+            const failed = yield* orchestrator.streamDomainEvents.pipe(
+              Stream.filter(
+                (event) => event.type === "run.updated" && event.payload.status === "failed",
+              ),
+              Stream.runHead,
+              Effect.forkChild({ startImmediately: true }),
+            );
+            yield* orchestrator.dispatch({
+              type: "message.dispatch",
+              commandId: CommandId.make(`${threadId}:start`),
+              threadId,
+              messageId: MessageId.make(`${threadId}:message`),
+              text: "Continue.",
+              attachments: [],
+              createdBy: "user",
+              creationSource: "web",
+              dispatchMode: { type: "start_immediately" },
+            });
+            yield* worker.drain();
+            yield* Fiber.join(failed);
+            const projection = yield* orchestrator.getThreadProjection(threadId);
+            const failure = projection.turnItems.find((item) => item.type === "error");
+            assert.equal(failure?.type === "error" ? failure.failure.resetAt : null, resetAt);
+            assert.isNull((yield* Ref.get(replayDriver.state)).failure);
+            const candidate = yield* orchestrator.getThreadShell(threadId);
+            assert.equal(candidate?.usageLimitResetAt, resetAt);
+            const now = yield* DateTime.now;
+            assert.isDefined(candidate);
+            const arm = limitRecoveryCommand(candidate!, true, DateTime.toEpochMillis(now));
+            assert.equal(arm?.type, "thread.metadata.update");
+            yield* orchestrator.dispatch(arm!);
+            const afterReset = DateTime.makeUnsafe(Date.parse(resetAt) + 1);
+            const armed = yield* orchestrator.getThreadShell(threadId);
+            const resume = limitRecoveryCommand(armed!, true, DateTime.toEpochMillis(afterReset));
+            assert.equal(resume?.type, "message.dispatch");
+          }).pipe(
+            Effect.provide(
+              ProviderReplayHarness.layerWithRegistry(
+                { name: `codex-persisted-limit-${source}`, runtimePolicyOverride: { cwd } },
+                CodexAdapterV2Testkit.layer({ transcript, driver: replayDriver }),
+                { runEffectWorker: false },
+              ),
+            ),
+          );
+        }).pipe(Effect.provide(NodeServices.layer)),
+      ),
+  );
+
+  it.effect(
+    "settles a usage failure when the reset lookup times out without inventing a reset",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const requested = yield* Deferred.make<void>();
+          const nativeThreadId = "native-limit-timeout";
+          const nativeTurnId = "turn-limit-timeout";
+          const harness = yield* makeCodexReplayHarness(
+            makeCodexReplayTranscript({
+              scenario: "codex-limit-timeout",
+              entries: [
+                ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Continue." }),
+                {
+                  type: "emit_inbound",
+                  label: "turn/completed",
+                  frame: {
+                    method: "turn/completed",
+                    params: {
+                      threadId: nativeThreadId,
+                      turn: {
+                        ...makeCodexReplayTurn({ id: nativeTurnId, status: "failed" }),
+                        error: {
+                          message: "Usage limit reached.",
+                          codexErrorInfo: "usageLimitExceeded",
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            }),
+            undefined,
+            (method) =>
+              method === "account/rateLimits/read"
+                ? Deferred.succeed(requested, undefined).pipe(Effect.andThen(Effect.never))
+                : Effect.void,
+          );
+          yield* harness.runtime.startTurn(
+            makeCodexTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now: yield* DateTime.now,
+              attemptId: RunAttemptId.make("attempt-limit-timeout"),
+              text: "Continue.",
+            }),
+          );
+          yield* Deferred.await(requested);
+          assert.lengthOf(harness.terminalEvents(), 0);
+          yield* TestClock.adjust("3 seconds");
+          yield* harness.firstTerminal;
+          const terminal = harness.terminalEvents()[0];
+          assert.lengthOf(harness.terminalEvents(), 1);
+          assert.equal(terminal?.status, "failed");
+          if (terminal?.status !== "failed") return;
+          assert.equal(terminal.failure.class, "usage_limit");
+          assert.isNull(terminal.failure.resetAt);
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          ),
+        ),
+      ),
+  );
+
   it.effect.each([
     {
       name: "compact-below-limit",
@@ -4017,9 +4238,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           scenario: `codex-limit-${scenario.name}`,
           entries: [
             ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Continue." }),
-            ...(scenario.name === "deferred-reset" || scenario.name === "usage-read-failure"
-              ? [snapshot]
-              : []),
+            ...(scenario.name === "deferred-reset" ? [snapshot] : []),
             ...(scenario.name === "deferred-reset"
               ? [
                   {
@@ -4110,39 +4329,42 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                     label: "account/rateLimits/read",
                     frame: { id: 4, method: "account/rateLimits/read", params: null },
                   },
+                  ...(["late-reset", "late-below-limit", "usage-read-failure"].includes(
+                    scenario.name,
+                  )
+                    ? [snapshot]
+                    : []),
                   {
                     type: "emit_inbound" as const,
                     label: "account/rateLimits/read/result",
-                    frame:
-                      scenario.name === "usage-read-failure"
-                        ? {
-                            id: 4,
-                            error: { code: -32603, message: "Usage temporarily unavailable." },
-                          }
-                        : {
-                            id: 4,
-                            result: {
-                              rateLimits: {
-                                limitId: "codex",
-                                primary:
-                                  scenario.name === "compact-below-limit"
-                                    ? {
-                                        usedPercent: 98,
-                                        resetsAt: 2000100000,
-                                        windowDurationMins: 300,
-                                      }
-                                    : null,
-                                secondary: null,
-                                credits: null,
-                                planType: null,
-                              },
+                    frame: ["usage-read-failure", "late-reset", "late-below-limit"].includes(
+                      scenario.name,
+                    )
+                      ? {
+                          id: 4,
+                          error: { code: -32603, message: "Usage temporarily unavailable." },
+                        }
+                      : {
+                          id: 4,
+                          result: {
+                            rateLimits: {
+                              limitId: "codex",
+                              primary:
+                                scenario.name === "compact-below-limit"
+                                  ? {
+                                      usedPercent: 98,
+                                      resetsAt: 2000100000,
+                                      windowDurationMins: 300,
+                                    }
+                                  : null,
+                              secondary: null,
+                              credits: null,
+                              planType: null,
                             },
                           },
+                        },
                   },
                 ]
-              : []),
-            ...(scenario.name === "late-reset" || scenario.name === "late-below-limit"
-              ? [snapshot]
               : []),
             ...(scenario.name === "deferred-reset"
               ? [
@@ -4180,14 +4402,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               : []),
           ],
         });
-        const resetReceipt = yield* Deferred.make<void>();
-        const harness = yield* makeCodexReplayHarness(transcript, (event) =>
-          event.type === "turn_item.updated" &&
-          event.turnItem.type === "error" &&
-          event.turnItem.failure.resetAt === resetAt
-            ? Deferred.succeed(resetReceipt, undefined)
-            : Effect.void,
-        );
+        const harness = yield* makeCodexReplayHarness(transcript);
         yield* harness.runtime.startTurn(
           makeCodexTestTurnInput({
             threadId: harness.threadId,
@@ -4211,14 +4426,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             scenario.name,
           )
         ) {
-          yield* Deferred.await(resetReceipt);
-          const item = harness.events.find(
-            (event) =>
-              event.type === "turn_item.updated" &&
-              event.turnItem.type === "error" &&
-              event.turnItem.failure.resetAt === resetAt,
-          );
-          assert.isDefined(item);
+          assert.equal(terminal.failure.resetAt, resetAt);
         }
         if (scenario.name === "retry") assert.equal(terminal.retry?.attempt, 1);
         if (scenario.name === "chatgpt-workspace-limit") {

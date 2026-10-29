@@ -68,7 +68,6 @@ import type {
   ProviderApprovalDecision,
   ProviderApprovalOption,
   ProviderRequestKind,
-  ProviderThreadId,
   ProviderTurnId,
   ProviderInstanceId,
   RuntimeMode,
@@ -135,7 +134,6 @@ import * as ProviderContinuationRequests from "@t3tools/provider-core/server/Pro
 import { backgroundWorkNotification } from "@t3tools/provider-core/server/notification";
 import {
   makeProviderFailure,
-  makeProviderFailureTurnItem,
   makeProviderRetryTurnItem,
 } from "@t3tools/provider-core/server/failure";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
@@ -1719,9 +1717,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         });
         const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
         const rateLimitSnapshot = yield* Ref.make<CodexRateLimitSnapshot | undefined>(undefined);
-        const limitedTurnItems = yield* Ref.make(
-          new Map<ProviderThreadId, Extract<OrchestrationV2TurnItem, { type: "error" }>>(),
-        );
         const activeTurns = yield* Ref.make(new Map<string, ActiveCodexTurnContext>());
         const turnTokenUsageByThread = new Map<string, CodexTurnTokenUsageState>();
         const usageStateForThread = (nativeThreadId: string) => {
@@ -1934,11 +1929,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             fileChangeKindsByItem: new Map(),
             runningCompactionItemIds: new Set(),
           };
-          yield* Ref.update(limitedTurnItems, (current) => {
-            const next = new Map(current);
-            next.delete(context.providerThread.id);
-            return next;
-          });
           beginTurnTokenUsage(context);
           endSessionApprovalsOnModeChange(context);
           yield* Ref.update(activeTurns, (current) => {
@@ -4259,37 +4249,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           }).pipe(Effect.orDie),
         );
 
-        const updateLimitedTurnResetTimes = Effect.fn("CodexAdapterV2.updateLimitedTurnResetTimes")(
-          function* () {
-            const resetAt = codexUsageLimitResetAt(
-              yield* Ref.get(rateLimitSnapshot),
-              DateTime.formatIso(yield* DateTime.now),
-            );
-            for (const item of (yield* Ref.get(limitedTurnItems)).values()) {
-              if (resetAt === null || item.failure.resetAt != null) continue;
-              const updated = {
-                ...item,
-                updatedAt: yield* DateTime.now,
-                failure: { ...item.failure, resetAt },
-              };
-              yield* Ref.update(limitedTurnItems, (current) =>
-                new Map(current).set(item.providerThreadId!, updated),
-              );
-              yield* emitProviderEvent({
-                type: "turn_item.updated",
-                driver: CODEX_PROVIDER,
-                turnItem: updated,
-              });
-            }
-          },
-        );
-
         yield* client.handleServerNotification("account/rateLimits/updated", (payload) =>
           Effect.gen(function* () {
             yield* Ref.update(rateLimitSnapshot, (previous) =>
               mergeCodexRateLimits(previous, payload.rateLimits),
             );
-            yield* updateLimitedTurnResetTimes();
             const update = codexRateLimitsToUpdate(payload.rateLimits);
             if (update && adapterOptions.onUsageLimits) {
               const checkedAt = DateTime.formatIso(yield* DateTime.now);
@@ -5584,7 +5548,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   failure.class === "usage_limit"
                     ? {
                         ...failure,
-                        resetAt: codexUsageLimitResetAt(yield* Ref.get(rateLimitSnapshot)),
+                        resetAt: codexUsageLimitResetAt(
+                          yield* Ref.get(rateLimitSnapshot),
+                          DateTime.formatIso(yield* DateTime.now),
+                        ),
                       }
                     : failure,
                 ...(input.providerRetry === undefined
@@ -5613,62 +5580,61 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           context: ActiveCodexTurnContext,
           event: CodexRootTerminalEvent,
         ) {
-          const current =
-            event.status === "failed" && event.failure.class === "usage_limit"
-              ? {
-                  ...event,
-                  failure: {
-                    ...event.failure,
-                    resetAt:
-                      event.failure.resetAt ??
-                      codexUsageLimitResetAt(yield* Ref.get(rateLimitSnapshot)),
-                  },
-                }
-              : event;
-          yield* emitProviderEvent(current);
-          for (const turn of goalRuns.get(context.providerTurnId) ?? []) {
-            goalRuns.delete(turn.providerTurnId);
-          }
-          const nativeThreadId = context.providerThread.nativeThreadRef?.nativeId;
-          const rootProviderThread =
-            nativeThreadId == null ? undefined : rootProviderThreads.get(nativeThreadId);
-          if (nativeThreadId != null && rootProviderThread !== undefined) {
-            rootProviderThreads.set(nativeThreadId, { ...rootProviderThread, status: "idle" });
-          }
-          if (current.status === "failed" && current.failure.class === "usage_limit") {
-            const item = makeProviderFailureTurnItem({
-              driver: CODEX_PROVIDER,
-              threadId: context.input.threadId,
-              runId: context.input.runId,
-              nodeId: context.input.rootNodeId,
-              providerThreadId: current.providerThreadId,
-              providerTurnId: current.providerTurnId,
-              itemOrdinal: current.failureItemOrdinal,
-              failure: current.failure,
-              occurredAt: yield* DateTime.now,
-            });
-            yield* Ref.update(limitedTurnItems, (items) =>
-              new Map(items).set(context.providerThread.id, item),
-            );
-            if (current.failure.resetAt == null) {
-              // Notification handlers share the response reader, so request usage outside that fiber.
-              yield* client.request("account/rateLimits/read", null).pipe(
-                Effect.timeout("3 seconds"),
-                Effect.flatMap((response) =>
-                  Ref.update(rateLimitSnapshot, (previous) =>
-                    mergeCodexRateLimits(
-                      previous,
-                      response.rateLimitsByLimitId?.codex ?? response.rateLimits,
-                    ),
+          const publish = Effect.gen(function* () {
+            const current =
+              event.status === "failed" && event.failure.class === "usage_limit"
+                ? {
+                    ...event,
+                    failure: {
+                      ...event.failure,
+                      resetAt:
+                        event.failure.resetAt ??
+                        codexUsageLimitResetAt(
+                          yield* Ref.get(rateLimitSnapshot),
+                          DateTime.formatIso(yield* DateTime.now),
+                        ),
+                    },
+                  }
+                : event;
+            yield* emitProviderEvent(current);
+            for (const turn of goalRuns.get(context.providerTurnId) ?? []) {
+              goalRuns.delete(turn.providerTurnId);
+            }
+            const nativeThreadId = context.providerThread.nativeThreadRef?.nativeId;
+            const rootProviderThread =
+              nativeThreadId == null ? undefined : rootProviderThreads.get(nativeThreadId);
+            if (nativeThreadId != null && rootProviderThread !== undefined) {
+              rootProviderThreads.set(nativeThreadId, { ...rootProviderThread, status: "idle" });
+            }
+          });
+          if (
+            event.status === "failed" &&
+            event.failure.class === "usage_limit" &&
+            event.failure.resetAt == null &&
+            codexUsageLimitResetAt(
+              yield* Ref.get(rateLimitSnapshot),
+              DateTime.formatIso(yield* DateTime.now),
+            ) === null
+          ) {
+            // The response reader runs notification handlers; resolve usage in a separate fiber before terminal publication.
+            yield* client.request("account/rateLimits/read", null).pipe(
+              Effect.timeout("3 seconds"),
+              Effect.flatMap((response) =>
+                Ref.update(rateLimitSnapshot, (previous) =>
+                  mergeCodexRateLimits(
+                    previous,
+                    response.rateLimitsByLimitId?.codex ?? response.rateLimits,
                   ),
                 ),
-                Effect.catch((cause) =>
-                  Effect.logDebug("Codex limit recovery usage read failed.", { cause }),
-                ),
-                Effect.andThen(updateLimitedTurnResetTimes()),
-                Effect.forkIn(scope),
-              );
-            }
+              ),
+              Effect.catch((cause) =>
+                Effect.logDebug("Codex limit recovery usage read failed.", { cause }),
+              ),
+              Effect.andThen(publish),
+              Effect.forkIn(scope),
+            );
+          } else {
+            yield* publish;
           }
         });
 
