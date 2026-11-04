@@ -7,6 +7,16 @@ import {
 } from "./orchestrationV2.ts";
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
 import {
+  ScmDiscoverInput,
+  ScmDiscoverySnapshot,
+  ScmRepositoryTarget,
+  ScmRepositoryStatus,
+  ScmDiffInput,
+  ScmDiffResult,
+  ScmMutationInput,
+  ScmError,
+} from "./scm.ts";
+import {
   McpAppCallToolInput,
   McpAppCallToolResult,
   McpAppReadResourceInput,
@@ -450,6 +460,10 @@ export const WS_METHODS = {
   providerInstallRemove: "provider.install.remove",
 
   vcsPull: "vcs.pull",
+  scmDiscover: "scm.discover",
+  scmStatus: "scm.status",
+  scmDiff: "scm.diff",
+  scmMutate: "scm.mutate",
   vcsRefreshStatus: "vcs.refreshStatus",
   vcsListRefs: "vcs.listRefs",
   vcsCreateWorktree: "vcs.createWorktree",
@@ -1455,6 +1469,28 @@ const WsVcsPullRpc = Rpc.make(WS_METHODS.vcsPull, {
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsScmDiscoverRpc = Rpc.make(WS_METHODS.scmDiscover, {
+  payload: ScmDiscoverInput,
+  success: ScmDiscoverySnapshot,
+  error: Schema.Union([ScmError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsScmStatusRpc = Rpc.make(WS_METHODS.scmStatus, {
+  payload: ScmRepositoryTarget,
+  success: ScmRepositoryStatus,
+  error: Schema.Union([ScmError, EnvironmentAuthorizationError]),
+});
+const WsScmDiffRpc = Rpc.make(WS_METHODS.scmDiff, {
+  payload: ScmDiffInput,
+  success: ScmDiffResult,
+  error: Schema.Union([ScmError, EnvironmentAuthorizationError]),
+});
+const WsScmMutateRpc = Rpc.make(WS_METHODS.scmMutate, {
+  payload: ScmMutationInput,
+  success: ScmRepositoryStatus,
+  error: Schema.Union([ScmError, EnvironmentAuthorizationError]),
+});
+
 const WsVcsRefreshStatusRpc = Rpc.make(WS_METHODS.vcsRefreshStatus, {
   payload: Schema.Struct({
     ...VcsStatusInput.fields,
@@ -2142,6 +2178,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeWorktreeSetupRpc,
   WsWorktreeSetupCancelRpc,
   WsVcsPullRpc,
+  WsScmDiscoverRpc,
+  WsScmStatusRpc,
+  WsScmDiffRpc,
+  WsScmMutateRpc,
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,

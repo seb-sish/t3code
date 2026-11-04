@@ -383,6 +383,10 @@
       "types": "./src/state/vcs.ts",
       "default": "./src/state/vcs.ts"
     },
+    "./state/scm": {
+      "types": "./src/state/scm.ts",
+      "default": "./src/state/scm.ts"
+    },
     "./work-log/user-input": {
       "types": "./src/work-log/userInput.ts",
       "default": "./src/work-log/userInput.ts"

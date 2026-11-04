@@ -40,6 +40,7 @@ import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnviron
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useProjectScriptEditing } from "./chat/useProjectScriptEditing";
 import { RightPanelSurfaceContent } from "./chat/RightPanelSurfaceContent";
+import { ScmChatContent, ScmDiffHost } from "./git/ScmDiffHost";
 import { usePendingThreadRequests } from "./chat/usePendingThreadRequests";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -3202,6 +3203,10 @@ export default function ChatView(props: ChatViewProps) {
       onSendAnnotation={sendPreviewAnnotationStable}
       onCloseSurface={closeRightPanelSurface}
       sideChatParentPanel={sideChatParentPanel}
+      onOpenScmDiff={() => {
+        if (shouldUsePlanSidebarSheet && activeThreadRef)
+          useRightPanelStore.getState().close(activeThreadRef);
+      }}
       terminal={{
         launchContext: activeTerminalLaunchContext ?? null,
         keybindings,
@@ -3292,13 +3297,14 @@ export default function ChatView(props: ChatViewProps) {
       {rightPanelControlsAtRoot && !embedded ? panelLayoutControls : null}
       <div
         className={cn(
-          "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
+          "relative flex min-h-0 min-w-0 flex-col overflow-x-hidden",
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
         data-chat-column
         inert={rightPanelMaximized}
       >
+        {activeThreadRef ? <ScmDiffHost threadRef={activeThreadRef} /> : null}
         {embedded ? null : (
           <header
             ref={threadPanelPopoverAnchorRef}
@@ -3343,7 +3349,10 @@ export default function ChatView(props: ChatViewProps) {
           </header>
         )}
 
-        <div className="relative flex min-h-0 min-w-0 flex-1">
+        <ScmChatContent
+          threadRef={activeThreadRef}
+          className="relative flex min-h-0 min-w-0 flex-1"
+        >
           <ThreadFindCanvas
             findOptions={{
               skills: timelineSkills,
@@ -3451,7 +3460,10 @@ export default function ChatView(props: ChatViewProps) {
                   // Side chat runs keep no checkpoints to diff, and a fork would promote the side chat.
                   {...(embedded
                     ? {}
-                    : { onOpenTurnDiff: onOpenTurnDiffStable, onForkFromRun: onForkFromRunStable })}
+                    : {
+                        onOpenTurnDiff: onOpenTurnDiffStable,
+                        onForkFromRun: onForkFromRunStable,
+                      })}
                   onOpenThread={onOpenRelatedThreadStable}
                   parentThreadLink={parentThreadLink}
                   workflowOpening={workflowOpening}
@@ -3920,22 +3932,24 @@ export default function ChatView(props: ChatViewProps) {
               </>
             )}
           </ThreadFindCanvas>
-        </div>
+        </ScmChatContent>
 
-        {embedded ? null : (
-          <ChatTerminalDrawers
-            activeThreadKey={activeThreadKey}
-            activeTerminalOpen={Boolean(terminalUiState.terminalOpen)}
-            composerHeight={composerReservedHeight}
-            launchContext={activeTerminalLaunchContext ?? null}
-            splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
-            splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
-            newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-            closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
-            keybindings={keybindings}
-            onAddTerminalContext={addTerminalContextToDraftStable}
-          />
-        )}
+        <ScmChatContent threadRef={activeThreadRef}>
+          {embedded ? null : (
+            <ChatTerminalDrawers
+              activeThreadKey={activeThreadKey}
+              activeTerminalOpen={Boolean(terminalUiState.terminalOpen)}
+              composerHeight={composerReservedHeight}
+              launchContext={activeTerminalLaunchContext ?? null}
+              splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+              splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
+              newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+              closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+              keybindings={keybindings}
+              onAddTerminalContext={addTerminalContextToDraftStable}
+            />
+          )}
+        </ScmChatContent>
       </div>
 
       {rightPanelPresent && activeThreadRef && !embedded ? (
@@ -3983,6 +3997,11 @@ export default function ChatView(props: ChatViewProps) {
           onAddBrowserInProfile={createBrowserSurfaceStable}
           onAddTerminal={addTerminalSurfaceStable}
           onAddDiff={addDiffSurfaceStable}
+          onAddGit={
+            activeProject && activeThreadRef
+              ? () => useRightPanelStore.getState().open(activeThreadRef, "git")
+              : undefined
+          }
           onAddFiles={addFilesSurfaceStable}
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}

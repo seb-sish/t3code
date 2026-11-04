@@ -166,6 +166,45 @@ function layerBackgroundPolicy(shouldRunScopeWork: (scope: BackgroundScope) => b
 }
 
 describe("VcsStatusBroadcaster", () => {
+  it.effect("publishes explicit mutation refreshes without fetching or automatic pulling", () => {
+    const state = {
+      currentLocalStatus: baseLocalStatus,
+      currentRemoteStatus: baseRemoteStatus,
+      localStatusCalls: 0,
+      remoteStatusCalls: 0,
+      localInvalidationCalls: 0,
+      remoteInvalidationCalls: 0,
+      remoteStatusRefreshUpstreamValues: [] as Array<boolean | undefined>,
+      pullCurrentBranch: () => Effect.die("A mutation refresh must not automatically pull"),
+    };
+    return Effect.gen(function* () {
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      yield* broadcaster.getStatus({ cwd: "/repo" });
+      state.remoteStatusRefreshUpstreamValues.length = 0;
+      const subscribed = yield* Deferred.make<void>();
+      const events = yield* broadcaster.streamStatus({ cwd: "/repo" }).pipe(
+        Stream.tap((event) =>
+          event._tag === "snapshot" ? Deferred.succeed(subscribed, undefined) : Effect.void,
+        ),
+        Stream.take(3),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+      yield* Deferred.await(subscribed);
+      state.currentLocalStatus = { ...baseLocalStatus, hasWorkingTreeChanges: true };
+      state.currentRemoteStatus = { ...baseRemoteStatus, aheadCount: 1 };
+      const refreshed = yield* broadcaster.refreshStatus("/repo", { refreshUpstream: false });
+      assert.isTrue(refreshed.hasWorkingTreeChanges);
+      assert.equal(refreshed.aheadCount, 1);
+      assert.deepStrictEqual(state.remoteStatusRefreshUpstreamValues, [false]);
+      const published = yield* Fiber.join(events);
+      assert.equal(published.length, 3);
+      const cached = yield* broadcaster.getStatus({ cwd: "/repo" });
+      assert.isTrue(cached.hasWorkingTreeChanges);
+      assert.equal(cached.aheadCount, 1);
+    }).pipe(Effect.provide(layerTestFor(state)), Effect.scoped);
+  });
+
   it.effect("refreshes queued behind a running one share the next git status read", () => {
     const state: Parameters<typeof layerTestFor>[0] = {
       currentLocalStatus: baseLocalStatus,

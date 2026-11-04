@@ -41,6 +41,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileDiff,
+  GitBranch,
   Files,
   Globe2,
   MessagesSquare,
@@ -137,6 +138,7 @@ export interface RightPanelTabsProps {
   onAddBrowserInProfile: (profileId: string) => void;
   onAddTerminal: () => void;
   onAddDiff: () => void;
+  onAddGit?: (() => void) | undefined;
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
@@ -318,6 +320,7 @@ function RightPanelEmptyState(props: {
   browserProfiles: ReadonlyArray<{ readonly id: string; readonly name: string }>;
   onAddTerminal: () => void;
   onAddDiff: () => void;
+  onAddGit?: (() => void) | undefined;
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
@@ -360,6 +363,14 @@ function RightPanelEmptyState(props: {
       available: props.filesAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.files,
       onClick: props.onAddFiles,
+    },
+    {
+      label: "Git",
+      icon: GitBranch,
+      shortcut: "G",
+      available: props.onAddGit !== undefined,
+      disabledReason: "Select a project to use Git.",
+      onClick: props.onAddGit ?? (() => {}),
     },
     {
       label: "Diff",
@@ -573,6 +584,8 @@ function surfaceTitle(
   terminalLabelsById: ReadonlyMap<string, string>,
 ): string {
   switch (surface.kind) {
+    case "git":
+      return "Git";
     case "diff":
       return "Diff";
     case "files":
@@ -657,6 +670,8 @@ function SurfaceIcon({
   switch (surface.kind) {
     case "preview":
       return <PreviewFavicon capturedUrl={previewCapturedUrl} url={previewUrl} />;
+    case "git":
+      return <GitBranch className="size-3 shrink-0" />;
     case "diff":
       return <FileDiff className="size-3 shrink-0" />;
     case "files":
@@ -1116,6 +1131,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       onClick: props.onAddFiles,
     },
     {
+      label: "Git",
+      icon: GitBranch,
+      shortcut: "G",
+      available: props.onAddGit !== undefined,
+      disabledReason: "Select a project to use Git.",
+      onClick: props.onAddGit ?? (() => {}),
+    },
+    {
       label: "Diff",
       icon: FileDiff,
       shortcut: "D",
@@ -1529,6 +1552,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             browserProfiles={browserProfiles}
             onAddTerminal={props.onAddTerminal}
             onAddDiff={props.onAddDiff}
+            onAddGit={props.onAddGit}
             onAddFiles={props.onAddFiles}
             onAddPullRequest={props.onAddPullRequest}
             onAddPullRequests={props.onAddPullRequests}

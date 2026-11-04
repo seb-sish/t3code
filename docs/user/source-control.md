@@ -3,6 +3,20 @@
 T3 Code integrates with GitHub, GitLab, Forgejo, Gitea, Bitbucket, Azure DevOps, and GitCafe to clone
 and publish repositories, create pull requests, and review changes.
 
+## Work with local changes
+
+On web and desktop, choose **Git** in the right panel's **Open a surface** menu. It discovers
+repositories inside the selected project, including nested repositories and the thread's active
+worktree. Selecting a repository leaves your chat and the agent's working directory in place.
+
+Open a file to compare its staged or working changes. Stage or unstage whole files, then enter
+a message to commit only the staged changes. Unstaged changes stay in your working folder.
+Conflicted files are listed separately; resolve them with your usual Git tools before committing.
+
+Fetch, Pull, and Push run only when you choose them. Pull requires an upstream and uses fast-forward
+only. Git runs on the selected environment's server, using its Git authentication and signing
+configuration. A connection without source-control write permission can inspect changes.
+
 ## Review turn changes
 
 A turn's changed files and diff show only the turn's own work. When a turn pulls, merges, or

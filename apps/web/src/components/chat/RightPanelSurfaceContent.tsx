@@ -29,6 +29,9 @@ const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
 );
 const DiffPanel = lazy(() => import("../DiffPanel"));
+const GitPanel = lazy(() =>
+  import("../git/GitPanel").then((module) => ({ default: module.GitPanel })),
+);
 const DevicePanel = lazy(() =>
   import("../device/DevicePanel").then((module) => ({ default: module.DevicePanel })),
 );
@@ -78,10 +81,23 @@ export function RightPanelSurfaceContent(props: {
   readonly pullRequest: RightPanelPullRequestProps;
   readonly files: RightPanelFileProps;
   readonly sideChatParentPanel: SideChatParentPanel;
+  readonly onOpenScmDiff?: (() => void) | undefined;
 }) {
   const { surface, threadRef, visible, onCloseSurface } = props;
   if (surface === null) return null;
   switch (surface.kind) {
+    case "git":
+      return (
+        <Suspense fallback={null}>
+          <GitPanel
+            threadRef={threadRef}
+            projectId={props.pullRequest.projectId}
+            projectName={props.files.projectName}
+            visible={visible}
+            onOpenDiff={props.onOpenScmDiff}
+          />
+        </Suspense>
+      );
     case "preview":
       return (
         <Suspense fallback={null}>

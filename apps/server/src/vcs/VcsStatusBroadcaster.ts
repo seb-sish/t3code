@@ -213,7 +213,7 @@ export class VcsStatusBroadcaster extends Context.Service<
     ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
     readonly refreshStatus: (
       cwd: string,
-      options?: { readonly localOnly?: boolean },
+      options?: { readonly localOnly?: boolean; readonly refreshUpstream?: boolean },
     ) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
     readonly refreshPullRequestStatus: (
       cwd: string,
@@ -516,7 +516,8 @@ export const make = Effect.gen(function* () {
     return yield* withRemoteWriteLock(
       cwd,
       Effect.gen(function* () {
-        const refreshUpstream = !Duration.isZero(yield* automaticFetchInterval);
+        const refreshUpstream =
+          options?.refreshUpstream ?? !Duration.isZero(yield* automaticFetchInterval);
         // Bump the PR lookup epoch after earlier remote writers have finished.
         yield* workflow.invalidateStatus(cwd);
         const remoteRead = yield* readRemoteStatus(cwd, { refreshUpstream });

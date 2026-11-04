@@ -40,6 +40,27 @@ async function reloadRightPanelStore() {
 }
 
 describe("rightPanelStore", () => {
+  it("persists and reopens Git without replacing another thread's surfaces", async () => {
+    const store = useRightPanelStore.getState();
+    store.open(refB, "files");
+    store.open(refA, "git");
+    store.open(refA, "git");
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces,
+    ).toEqual([{ id: "git", kind: "git" }]);
+    await reloadRightPanelStore();
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.kind,
+    ).toBe("git");
+    useRightPanelStore.getState().closeSurface(refA, "git");
+    useRightPanelStore.getState().open(refA, "git");
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refB)?.kind,
+    ).toBe("files");
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.kind,
+    ).toBe("git");
+  });
   it("opens a hosted side chat's panel actions in its parent's panel until unhosted", () => {
     const store = useRightPanelStore.getState();
     const unhost = hostRightPanel(refB, refA);

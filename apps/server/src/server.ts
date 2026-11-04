@@ -1,4 +1,5 @@
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
+import * as ScmService from "./vcs/ScmService.ts";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Random from "effect/Random";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
@@ -456,6 +457,13 @@ const layerReview = ReviewService.layer.pipe(
 );
 
 const layerVcs = Layer.empty.pipe(
+  Layer.provideMerge(
+    ScmService.layer.pipe(
+      Layer.provide(GitVcsDriver.layer),
+      Layer.provide(ProjectStore.layer),
+      Layer.provide(ProjectionStoreV2.layer),
+    ),
+  ),
   Layer.provideMerge(VcsProjectConfig.layer),
   Layer.provideMerge(layerVcsDriverRegistry),
   Layer.provideMerge(VcsProvisioningService.layer.pipe(Layer.provide(layerVcsDriverRegistry))),
