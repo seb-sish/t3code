@@ -2217,6 +2217,14 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       const now = yield* DateTime.now;
       const threadId = ThreadId.make("thread:provider-usage-reload");
+      const consumedTokens = {
+        usageScope: "main_agent",
+        usageStatus: "complete",
+        inputTokens: 30_000,
+        outputTokens: 2_000,
+        cachedInputTokens: 10_000,
+        hasSubagents: false,
+      } as const;
       const providerThreadId = ProviderThreadId.make("provider-thread:provider-usage-reload");
       const providerTurnId = ProviderTurnId.make("provider-turn:provider-usage-reload");
       const nodeId = NodeId.make("node:provider-usage-reload");
@@ -2292,11 +2300,17 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         nodeId,
         driver,
         occurredAt: now,
-        payload: { ...providerTurn, status: "completed", completedAt: now },
+        payload: {
+          ...providerTurn,
+          status: "completed",
+          completedAt: now,
+          turnTokenUsage: consumedTokens,
+        },
       });
 
       const reloaded = yield* projectionStore.getThreadProjection(threadId);
       assert.deepEqual(reloaded.providerTurns[0]?.tokenUsage, initialUsage);
+      assert.deepEqual(reloaded.providerTurns[0]?.turnTokenUsage, consumedTokens);
       assert.strictEqual(reloaded.providerTurns[0]?.status, "completed");
 
       yield* projectionStore.apply({
@@ -2316,6 +2330,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
 
       const replaced = yield* projectionStore.getThreadProjection(threadId);
       assert.deepEqual(replaced.providerTurns[0]?.tokenUsage, replacementUsage);
+      assert.deepEqual(replaced.providerTurns[0]?.turnTokenUsage, consumedTokens);
     }),
   );
 

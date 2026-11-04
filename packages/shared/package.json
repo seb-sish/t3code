@@ -367,6 +367,10 @@
       "types": "./src/usageMerge.ts",
       "import": "./src/usageMerge.ts"
     },
+    "./threadTokenUsage": {
+      "types": "./src/threadTokenUsage.ts",
+      "import": "./src/threadTokenUsage.ts"
+    },
     "./usageFormat": {
       "types": "./src/usageFormat.ts",
       "import": "./src/usageFormat.ts"

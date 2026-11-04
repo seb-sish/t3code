@@ -1,7 +1,9 @@
 import type {
+  OrchestrationV2ThreadTokenUsage,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
 } from "@t3tools/contracts";
+import { summarizeThreadTokenUsage } from "@t3tools/shared/threadTokenUsage";
 import type {
   ProjectionRecordField,
   ProjectionRecordFilter,
@@ -381,6 +383,9 @@ export interface ThreadManagementServiceShape {
     readonly itemId: TurnItemId;
   }) => Effect.Effect<OrchestrationV2GetTurnItemResult, Orchestrator.OrchestratorV2Error>;
   readonly getThreadRecords: Orchestrator.OrchestratorV2["Service"]["getThreadRecords"];
+  readonly getThreadTokenUsage: (
+    threadId: ThreadId,
+  ) => Effect.Effect<OrchestrationV2ThreadTokenUsage, Orchestrator.OrchestratorV2Error>;
   readonly getThreadProjection: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2ThreadProjection, Orchestrator.OrchestratorV2Error>;
@@ -1507,6 +1512,12 @@ const make = Effect.gen(function* () {
         Effect.map((item) => ({ item: item === null ? null : projectTurnItemForDetail(item) })),
       );
     }),
+    getThreadTokenUsage: Effect.fn("ThreadManagementService.getThreadTokenUsage")((threadId) =>
+      ensureProjectionTranscript(threadId).pipe(
+        Effect.andThen(orchestrator.getThreadRecords(threadId, ["providerTurns", "attempts"])),
+        Effect.map(summarizeThreadTokenUsage),
+      ),
+    ),
     getThreadRecords: Effect.fn("ThreadManagementService.getThreadRecords")(
       function (threadId, fields, filter) {
         return ensureProjectionTranscript(threadId).pipe(

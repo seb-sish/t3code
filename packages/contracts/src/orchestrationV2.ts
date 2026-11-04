@@ -1187,6 +1187,25 @@ export const OrchestrationV2ProviderTurn = Schema.Struct({
 });
 export type OrchestrationV2ProviderTurn = typeof OrchestrationV2ProviderTurn.Type;
 
+/** Input includes cached tokens; output includes reasoning tokens. */
+export const OrchestrationV2TokenUsageTotals = Schema.Struct({
+  inputTokens: Schema.optional(NonNegativeInt),
+  outputTokens: Schema.optional(NonNegativeInt),
+  totalTokens: NonNegativeInt,
+  cachedInputTokens: Schema.optional(NonNegativeInt),
+  reasoningTokens: Schema.optional(NonNegativeInt),
+  recordedTurns: NonNegativeInt,
+  unavailableTurns: NonNegativeInt,
+  hasSubagents: Schema.Boolean,
+});
+export type OrchestrationV2TokenUsageTotals = typeof OrchestrationV2TokenUsageTotals.Type;
+
+export const OrchestrationV2ThreadTokenUsage = Schema.Struct({
+  total: OrchestrationV2TokenUsageTotals,
+  runs: Schema.Array(Schema.Struct({ runId: RunId, usage: OrchestrationV2TokenUsageTotals })),
+});
+export type OrchestrationV2ThreadTokenUsage = typeof OrchestrationV2ThreadTokenUsage.Type;
+
 /** Codex goals can span multiple native turns within one attempt. */
 export function latestProviderTurnForAttempt<
   Turn extends Pick<OrchestrationV2ProviderTurn, "runAttemptId" | "ordinal">,
@@ -3583,6 +3602,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   getWorktreeThreadIds: "orchestration.getWorktreeThreadIds",
   getOlderSettledThreads: "orchestration.getOlderSettledThreads",
   getThreadProjection: "orchestration.getThreadProjection",
+  getThreadTokenUsage: "orchestration.getThreadTokenUsage",
   getWorkflowScript: "orchestration.getWorkflowScript",
   getNativeChildWork: "orchestration.getNativeChildWork",
   stopWorkflow: "orchestration.stopWorkflow",
@@ -4237,6 +4257,10 @@ export const OrchestrationV2RpcSchemas = {
   getThreadProjection: {
     input: OrchestrationV2GetThreadProjectionInput,
     output: OrchestrationV2ThreadProjection,
+  },
+  getThreadTokenUsage: {
+    input: OrchestrationV2GetThreadProjectionInput,
+    output: OrchestrationV2ThreadTokenUsage,
   },
   stopWorkflow: {
     input: OrchestrationV2StopWorkflowInput,
