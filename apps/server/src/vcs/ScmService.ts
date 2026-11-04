@@ -1,6 +1,8 @@
 import {
   ScmError,
   type ScmDiscoverInput,
+  type ScmHistoryInput,
+  type ScmHistoryResult,
   type ScmDiscoverySnapshot,
   type ScmDiffInput,
   type ScmDiffResult,
@@ -30,6 +32,7 @@ export class ScmService extends Context.Service<
   ScmService,
   {
     readonly discover: (input: ScmDiscoverInput) => Stream.Stream<ScmDiscoverySnapshot, ScmError>;
+    readonly history: (input: ScmHistoryInput) => Effect.Effect<ScmHistoryResult, ScmError>;
     readonly status: (input: ScmRepositoryTarget) => Effect.Effect<ScmRepositoryStatus, ScmError>;
     readonly diff: (input: ScmDiffInput) => Effect.Effect<ScmDiffResult, ScmError>;
     readonly mutate: (input: ScmMutationInput) => Effect.Effect<ScmRepositoryStatus, ScmError>;
@@ -492,7 +495,88 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  return ScmService.of({ discover, status, diff, mutate });
+  const history: ScmService["Service"]["history"] = Effect.fn("ScmService.history")(
+    function* (input) {
+      const cwd = yield* authorize(input);
+      const refs = yield* execute(
+        cwd,
+        [
+          "for-each-ref",
+          "--sort=-committerdate",
+          "--format=%(refname)%00%(objectname)%00%(authorname)%00%(authordate:iso-strict)%00%(subject)%00%(HEAD)%00%(symref)%00",
+          "refs/heads/",
+          "refs/remotes/",
+        ],
+        { maxOutputBytes: 16 * 1024 * 1024 },
+      );
+      if (refs.stdoutTruncated)
+        return yield* new ScmError({ message: "Branch list is too large to read safely." });
+      const fields = refs.stdout.split("\0");
+      const branches: Array<ScmHistoryResult["branches"][number]> = [];
+      for (let i = 0; i + 6 < fields.length; i += 7) {
+        const ref = fields[i]!.replace(/^\n/, "");
+        if (fields[i + 6]) continue;
+        branches.push({
+          ref,
+          name: ref.replace(/^refs\/(heads|remotes)\//, ""),
+          remote: ref.startsWith("refs/remotes/"),
+          current: fields[i + 5] === "*",
+          hash: fields[i + 1]!,
+          author: fields[i + 2]!,
+          date: fields[i + 3]!,
+          subject: fields[i + 4]!,
+        });
+      }
+      let hash: string;
+      if (input.ref !== undefined) {
+        const branch = branches.find((branch) => branch.ref === input.ref);
+        if (!branch)
+          return yield* new ScmError({
+            message: "The selected branch no longer exists. Refresh the branch list.",
+          });
+        hash = branch.hash;
+      } else {
+        const head = yield* execute(cwd, ["rev-parse", "--verify", "HEAD"], {
+          allowNonZeroExit: true,
+        });
+        if (head.exitCode !== 0) return { branches, commits: [], hasMore: false };
+        hash = head.stdout.trim();
+      }
+      const output = yield* execute(
+        cwd,
+        [
+          "log",
+          "--topo-order",
+          `--max-count=${input.limit + 1}`,
+          "-z",
+          "--format=%H%x00%P%x00%an%x00%aI%x00%s",
+          hash,
+          "--",
+        ],
+        { maxOutputBytes: 8 * 1024 * 1024 },
+      );
+      if (output.stdoutTruncated)
+        return yield* new ScmError({ message: "Commit history is too large to read safely." });
+      const values = output.stdout.split("\0");
+      const commits: Array<ScmHistoryResult["commits"][number]> = [];
+      for (let i = 0; i + 4 < values.length; i += 5)
+        commits.push({
+          hash: values[i]!,
+          parents: values[i + 1]!.split(" ").filter(Boolean),
+          author: values[i + 2]!,
+          date: values[i + 3]!,
+          subject: values[i + 4]!,
+        });
+      return {
+        branches,
+        commits: commits.slice(0, input.limit),
+        hasMore: commits.length > input.limit,
+      };
+    },
+    Effect.mapError(failure("Could not read Git history.")),
+  );
+
+  return ScmService.of({ discover, status, history, diff, mutate });
 });
 
 export const layer = Layer.effect(ScmService, make);

@@ -17,6 +17,11 @@ Fetch, Pull, and Push run only when you choose them. Pull requires an upstream a
 only. Git runs on the selected environment's server, using its Git authentication and signing
 configuration. A connection without source-control write permission can inspect changes.
 
+The Git panel also shows a commit graph and a searchable list of local and remote-tracking
+branches. Selecting a branch changes only the displayed history; it does not check it out.
+Remote-tracking branches reflect the last fetch. History loads in batches of 100, up to 1000
+commits for the selected branch. Hover or focus a commit subject to read its author, date and hash.
+
 ## Review turn changes
 
 A turn's changed files and diff show only the turn's own work. When a turn pulls, merges, or

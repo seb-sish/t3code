@@ -174,6 +174,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.subscribeVcsStatus]: "vcs",
   [WS_METHODS.scmDiscover]: "vcs",
   [WS_METHODS.scmStatus]: "vcs",
+  [WS_METHODS.scmHistory]: "vcs",
   [WS_METHODS.scmDiff]: "vcs",
   [WS_METHODS.scmMutate]: "vcs",
   [WS_METHODS.subscribeWorktreeSetup]: "vcs",

@@ -1932,6 +1932,7 @@ export const layerWsRpc = (
           threadFind: true,
           threadFindProgressive: true,
           scm: true,
+          scmHistory: true,
           secretProviderSettings: true,
           secretReferences: true,
           ...Option.match(scratchWorkspaceRoot, {
@@ -3075,6 +3076,7 @@ export const layerWsRpc = (
         [WS_METHODS.subscribeVcsStatus]: (input) => vcsStatusBroadcaster.streamStatus(input),
         [WS_METHODS.scmDiscover]: (input) => scm.discover(input),
         [WS_METHODS.scmStatus]: (input) => scm.status(input),
+        [WS_METHODS.scmHistory]: (input) => scm.history(input),
         [WS_METHODS.scmDiff]: (input) => scm.diff(input),
         [WS_METHODS.scmMutate]: (input) => scm.mutate(input),
         [WS_METHODS.subscribeWorktreeSetup]: (input) => worktreeSetupTracker.stream(input.threadId),

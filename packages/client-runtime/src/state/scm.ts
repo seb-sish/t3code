@@ -26,6 +26,24 @@ export function createScmEnvironmentAtoms<R, E>(
       completeWhen: (snapshot) => !snapshot.scanning,
     }),
     status,
+    history: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "scm:history",
+      tag: WS_METHODS.scmHistory,
+      staleTimeMs: 0,
+      idleTtlMs: 0,
+      refreshTrigger: ({ environmentId, input }) =>
+        Atom.map(
+          status({
+            environmentId,
+            input: {
+              projectId: input.projectId,
+              repositoryPath: input.repositoryPath,
+              ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+            },
+          }),
+          (result) => AsyncResult.getOrElse(result, () => null)?.revision,
+        ),
+    }),
     diff: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "scm:diff",
       tag: WS_METHODS.scmDiff,

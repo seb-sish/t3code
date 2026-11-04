@@ -23,6 +23,7 @@ import { Textarea } from "../ui/textarea";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
 import { scmMessageKey, scmSelectionKey, useGitPanelStore } from "./gitPanelStore";
+import { GitHistory } from "./GitHistory";
 import { GitRepositoryList, GitSection } from "./GitRepositoryList";
 
 export function GitPanel({
@@ -443,6 +444,14 @@ function GitPanelContents({
             ) : null}
             {status.data && !files.length ? (
               <p className="px-5 py-3 text-muted-foreground">Рабочая копия чистая.</p>
+            ) : null}
+            {target ? (
+              <GitHistory
+                key={repositoryPath}
+                target={target.input}
+                threadRef={threadRef}
+                visible={visible}
+              />
             ) : null}
           </>
         ) : null}

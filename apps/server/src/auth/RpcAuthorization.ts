@@ -170,6 +170,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.subscribeVcsStatus]: AuthOrchestrationReadScope,
   [WS_METHODS.scmDiscover]: AuthFilesystemReadScope,
   [WS_METHODS.scmStatus]: AuthFilesystemReadScope,
+  [WS_METHODS.scmHistory]: AuthFilesystemReadScope,
   [WS_METHODS.scmDiff]: AuthFilesystemReadScope,
   [WS_METHODS.subscribeWorktreeSetup]: AuthOrchestrationReadScope,
   [WS_METHODS.worktreeSetupCancel]: AuthOrchestrationOperateScope,

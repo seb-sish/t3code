@@ -20,6 +20,38 @@ export const ScmRepositoryTarget = Schema.Struct({
 });
 export type ScmRepositoryTarget = typeof ScmRepositoryTarget.Type;
 
+export const ScmHistoryInput = Schema.Struct({
+  ...ScmRepositoryTarget.fields,
+  ref: Schema.optional(ScmPath),
+  limit: NonNegativeInt.check(Schema.isBetween({ minimum: 1, maximum: 1000 })),
+});
+export type ScmHistoryInput = typeof ScmHistoryInput.Type;
+export const ScmHistoryResult = Schema.Struct({
+  branches: Schema.Array(
+    Schema.Struct({
+      ref: Schema.String,
+      name: Schema.String,
+      remote: Schema.Boolean,
+      current: Schema.Boolean,
+      hash: Schema.String,
+      subject: Schema.String,
+      author: Schema.String,
+      date: Schema.String,
+    }),
+  ),
+  commits: Schema.Array(
+    Schema.Struct({
+      hash: Schema.String,
+      parents: Schema.Array(Schema.String),
+      author: Schema.String,
+      date: Schema.String,
+      subject: Schema.String,
+    }),
+  ),
+  hasMore: Schema.Boolean,
+});
+export type ScmHistoryResult = typeof ScmHistoryResult.Type;
+
 export const ScmRepositoryStatus = Schema.Struct({
   rootPath: ScmPath,
   branch: Schema.NullOr(Schema.String),

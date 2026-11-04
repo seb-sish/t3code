@@ -76,6 +76,54 @@ const fixture = Effect.gen(function* () {
 });
 
 describe("ScmService", () => {
+  it.effect("reads merged history and all branch refs without changing the checkout", () =>
+    Effect.gen(function* () {
+      const { fs, path, projectId, service, git, init } = yield* fixture;
+      const cwd = yield* init("history");
+      const target = { projectId, repositoryPath: cwd };
+      expect((yield* service.history({ ...target, limit: 2 })).commits).toEqual([]);
+      yield* fs.writeFileString(path.join(cwd, "base"), "base");
+      yield* git(cwd, ["add", "."]);
+      yield* git(cwd, ["commit", "-m", "base"]);
+      yield* git(cwd, ["checkout", "-b", "feature"]);
+      yield* fs.writeFileString(path.join(cwd, "feature"), "feature");
+      yield* git(cwd, ["add", "."]);
+      yield* git(cwd, ["commit", "-m", "feature subject | unicode ✓"]);
+      yield* git(cwd, ["checkout", "main"]);
+      yield* git(cwd, ["commit", "--allow-empty", "-m", "main change"]);
+      yield* git(cwd, ["merge", "--no-ff", "feature", "-m", "merge"]);
+      yield* git(cwd, ["update-ref", "refs/remotes/origin/feature", "feature"]);
+      yield* git(cwd, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/feature"]);
+      const history = yield* service.history({ ...target, limit: 2 });
+      expect(history.commits).toHaveLength(2);
+      expect(history.hasMore).toBe(true);
+      expect(history.commits[0]?.parents).toHaveLength(2);
+      expect(history.branches.some((branch) => branch.ref === "refs/remotes/origin/HEAD")).toBe(
+        false,
+      );
+      expect(history.branches.map((branch) => branch.ref)).toEqual(
+        expect.arrayContaining([
+          "refs/heads/main",
+          "refs/heads/feature",
+          "refs/remotes/origin/feature",
+        ]),
+      );
+      const branch = yield* service.history({
+        ...target,
+        ref: "refs/remotes/origin/feature",
+        limit: 100,
+      });
+      expect(branch.commits[0]?.subject).toBe("feature subject | unicode ✓");
+      expect(branch.hasMore).toBe(false);
+      expect((yield* git(cwd, ["branch", "--show-current"])).stdout.trim()).toBe("main");
+      yield* service.history({ ...target, ref: "--all", limit: 100 }).pipe(Effect.flip);
+      yield* git(cwd, ["checkout", "--detach", "feature"]);
+      const detached = yield* service.history({ ...target, limit: 100 });
+      expect(detached.commits[0]?.subject).toBe("feature subject | unicode ✓");
+      expect(detached.branches.some((branch) => branch.current)).toBe(false);
+    }).pipe(Effect.provide(runtime), Effect.scoped),
+  );
+
   it.effect("stages a renamed destination without capturing a restored source", () =>
     Effect.gen(function* () {
       const { fs, path, projectId, service, git, init } = yield* fixture;

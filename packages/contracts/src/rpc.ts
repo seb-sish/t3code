@@ -11,6 +11,8 @@ import {
   ScmDiscoverySnapshot,
   ScmRepositoryTarget,
   ScmRepositoryStatus,
+  ScmHistoryInput,
+  ScmHistoryResult,
   ScmDiffInput,
   ScmDiffResult,
   ScmMutationInput,
@@ -462,6 +464,7 @@ export const WS_METHODS = {
   vcsPull: "vcs.pull",
   scmDiscover: "scm.discover",
   scmStatus: "scm.status",
+  scmHistory: "scm.history",
   scmDiff: "scm.diff",
   scmMutate: "scm.mutate",
   vcsRefreshStatus: "vcs.refreshStatus",
@@ -1475,6 +1478,11 @@ const WsScmDiscoverRpc = Rpc.make(WS_METHODS.scmDiscover, {
   error: Schema.Union([ScmError, EnvironmentAuthorizationError]),
   stream: true,
 });
+const WsScmHistoryRpc = Rpc.make(WS_METHODS.scmHistory, {
+  payload: ScmHistoryInput,
+  success: ScmHistoryResult,
+  error: Schema.Union([ScmError, EnvironmentAuthorizationError]),
+});
 const WsScmStatusRpc = Rpc.make(WS_METHODS.scmStatus, {
   payload: ScmRepositoryTarget,
   success: ScmRepositoryStatus,
@@ -2180,6 +2188,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsPullRpc,
   WsScmDiscoverRpc,
   WsScmStatusRpc,
+  WsScmHistoryRpc,
   WsScmDiffRpc,
   WsScmMutateRpc,
   WsVcsRefreshStatusRpc,
