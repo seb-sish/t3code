@@ -1,7 +1,8 @@
-import {
-  type EnvironmentId,
-  type UsageLimitSourceConfig,
-  UsageLimitSourceId,
+import type {
+  EnvironmentId,
+  SecretReference,
+  UnifiedSettings,
+  UsageLimitSourceConfig,
 } from "@t3tools/contracts";
 import { useState } from "react";
 
@@ -17,21 +18,10 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
-import { SecretInput } from "./SecretInput";
+import { sourceIdFromUrl } from "./AddUsageLimitSourceDialog.logic";
+import { SecretSourceInput, useSecretSources } from "./SecretSourceInput";
 import { Label } from "../ui/label";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-
-function sourceIdFromUrl(url: string, kind: UsageLimitSourceConfig["kind"]): UsageLimitSourceId {
-  let host = url;
-  try {
-    host = new URL(url).host;
-  } catch {}
-  const slug = host
-    .toLowerCase()
-    .replace(/[^a-z0-9.-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return UsageLimitSourceId.make(`${kind}-${slug || "hub"}`);
-}
 
 /** Send the management key once to server secret storage; settings retain only a redaction marker. */
 export function AddUsageLimitSourceDialog({
@@ -39,31 +29,37 @@ export function AddUsageLimitSourceDialog({
   onOpenChange,
   environmentId,
   environmentLabel,
+  sources,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
+  readonly sources: UnifiedSettings["usageLimitSources"];
 }) {
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
   const [kind, setKind] = useState<UsageLimitSourceConfig["kind"]>("cliproxy");
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
-  const [managementKey, setManagementKey] = useState("");
+  const secretSources = useSecretSources(environmentId);
+  const [keyDraft, setKeyDraft] = useState<string | SecretReference>("");
+  const [keyValid, setKeyValid] = useState(true);
+  const managementKey = typeof keyDraft === "string" ? keyDraft.trim() : keyDraft;
   const isMinimax = kind === "minimax";
   const trimmedUrl = isMinimax ? "https://www.minimax.io" : url.trim();
-  const canSave = trimmedUrl.length > 0 && managementKey.trim().length > 0;
+  const canSave = keyValid && trimmedUrl.length > 0 && managementKey !== "";
 
   const reset = () => {
     setKind("cliproxy");
     setLabel("");
     setUrl("");
-    setManagementKey("");
+    setKeyDraft("");
+    setKeyValid(true);
   };
 
   const save = () => {
     if (!canSave) return;
-    const id = sourceIdFromUrl(trimmedUrl, kind);
+    const id = sourceIdFromUrl(trimmedUrl, sources);
     updateSettings({
       usageLimitSources: {
         [id]: {
@@ -74,7 +70,7 @@ export function AddUsageLimitSourceDialog({
               ? { label: "MiniMax M Plan" }
               : {}),
           url: trimmedUrl,
-          managementKey: managementKey.trim(),
+          managementKey,
           enabled: true,
         },
       },
@@ -113,7 +109,8 @@ export function AddUsageLimitSourceDialog({
                 onValueChange={(value) => {
                   if (value === "cliproxy" || value === "minimax") {
                     setKind(value);
-                    setManagementKey("");
+                    setKeyDraft("");
+                    setKeyValid(true);
                   }
                 }}
               >
@@ -142,10 +139,14 @@ export function AddUsageLimitSourceDialog({
               <Label htmlFor="usage-source-key">
                 {isMinimax ? "Subscription Key" : "Management key"}
               </Label>
-              <SecretInput
+              <SecretSourceInput
                 id="usage-source-key"
-                value={managementKey}
-                onChange={(event) => setManagementKey(event.target.value)}
+                aria-label="Management key"
+                value={keyDraft}
+                sources={secretSources}
+                onChange={(event) => setKeyDraft(event.target.value)}
+                onSecretChange={(secret) => setKeyDraft(secret ?? "")}
+                onValidityChange={setKeyValid}
               />
             </div>
             <div className="grid gap-1.5">

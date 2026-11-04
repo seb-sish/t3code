@@ -1,5 +1,5 @@
 import { ProviderDriverKind, type UsageLimitSourceAccount } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
@@ -43,7 +43,7 @@ const decodeQuotaResponse = Schema.decodeUnknownEffect(QuotaResponse);
 
 export const makeMinimaxApi = Effect.gen(function* () {
   const client = yield* HttpClient.HttpClient;
-  const crypto = yield* Crypto.Crypto;
+  const digest = yield* Digest.Digest;
 
   const readAccounts = Effect.fn("MinimaxApi.readAccounts")(function* (key: string) {
     const json = yield* client
@@ -133,8 +133,8 @@ export const makeMinimaxApi = Effect.gen(function* () {
     if (windows.length === 0) {
       return yield* new MinimaxQuotaReadError({ stage: "quota" });
     }
-    const fingerprint = yield* crypto
-      .digest("SHA-256", new TextEncoder().encode(key))
+    const fingerprint = yield* digest
+      .digest(Digest.sha256, new TextEncoder().encode(key))
       .pipe(Effect.map(Hex.encode), Effect.orDie);
     const accounts: ReadonlyArray<UsageLimitSourceAccount> = [
       {
