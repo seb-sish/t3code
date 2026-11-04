@@ -147,6 +147,10 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     useRightPanelStore.getState().open(activeThreadRef, "files");
   };
   const addFilesSurfaceStable = useStableCallback(addFilesSurface);
+  const addGitSurfaceStable = useStableCallback(() => {
+    if (!activeThreadRef || !activeProject) return false;
+    useRightPanelStore.getState().open(activeThreadRef, "git");
+  });
   const addPullRequestsSurface = () => {
     if (!activeThreadRef || !pullRequestsSurfaceAvailable) return;
     useRightPanelStore.getState().open(activeThreadRef, "pull-requests");
@@ -338,6 +342,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
       if (!event.repeat) closeRightPanelSurface(activeRightPanelSurface);
     },
     "diff.toggle": () => onToggleDiff(),
+    "git.open": () => addGitSurfaceStable(),
   } satisfies ChatShortcutCommands;
 
   return {
@@ -346,6 +351,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     addDeviceSurfaceStable,
     addDiffSurfaceStable,
     addFilesSurfaceStable,
+    addGitSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
     closePreviewPanelStable,

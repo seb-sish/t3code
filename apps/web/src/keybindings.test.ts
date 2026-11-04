@@ -204,6 +204,35 @@ const DEFAULT_BINDINGS = compile([
 ]);
 
 describe("effectiveShortcutsForCommand", () => {
+  it("opens Git with the platform default and lets a saved custom binding replace it", () => {
+    const key = event({ key: "g", ctrlKey: true });
+    const options = { platform: "Win32", context: { terminalFocus: false } };
+    assert.equal(resolveShortcutCommand(key, DEFAULT_RESOLVED_KEYBINDINGS, options), "git.open");
+    assert.equal(
+      resolveShortcutCommand(event({ key: "g", metaKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        ...options,
+        platform: "MacIntel",
+      }),
+      "git.open",
+    );
+    assert.isNull(
+      resolveShortcutCommand(key, DEFAULT_RESOLVED_KEYBINDINGS, {
+        ...options,
+        context: { terminalFocus: true },
+      }),
+    );
+    const customized = mergeWithDefaultKeybindings(
+      compileResolvedKeybindingsConfig([
+        { command: "git.open", key: "mod+alt+g", when: "!terminalFocus" },
+      ]),
+    );
+    assert.isNull(resolveShortcutCommand(key, customized, options));
+    assert.equal(
+      resolveShortcutCommand(event({ key: "g", ctrlKey: true, altKey: true }), customized, options),
+      "git.open",
+    );
+  });
+
   it("passes only effective preview shortcuts to the desktop bridge", () => {
     const reopen = modShortcut("t", { shiftKey: true });
     const second = modShortcut("y", { shiftKey: true });

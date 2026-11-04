@@ -3,6 +3,12 @@
 Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
 also lists the command IDs and defaults available in your version.
 
+## Open Git
+
+Press `Ctrl+G` on Windows/Linux or `Cmd+G` on macOS to open the current project's Git panel.
+Change it under **Git: Open Panel** in **Settings → Keybindings**. The default leaves terminal
+input alone. Inside **Open a surface**, the single-letter `G` shortcut also opens Git.
+
 ## Composer controls
 
 In **Settings → Chat → Send shortcut**, choose whether Enter sends, requires

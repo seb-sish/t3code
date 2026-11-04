@@ -48,6 +48,7 @@ const PREVIEW_FORWARDED_COMMANDS = [
   "workspace.focusPrevious",
   "sidebar.toggle",
   "rightPanel.toggle",
+  "git.open",
   "rightPanel.toggleMaximized",
   "preview.focusUrl",
 ] as const;
