@@ -20,6 +20,17 @@ OpenCode 2 converts the shared OpenCode database to its own format the first tim
 runs. Don't run OpenCode 1.x and 2.x side by side on the same machine. Threads you
 started on 1.x continue on 2.x.
 
+## OpenCode Go limits
+
+For a local OpenCode provider, T3 Code reads Go session, weekly, and monthly limits
+from the selected Console account. Both API keys and Console OAuth sign-ins are
+supported. OAuth limits use the workspace selected during sign-in; T3 Code reads
+the existing credentials without changing them. After switching accounts, refresh
+the provider status in **Settings > Providers**.
+
+External OpenCode servers own their credentials, so T3 Code does not read the local
+account's Go limits for them.
+
 ## Compaction
 
 OpenCode compacts long conversations itself, and T3 Code has no setting for it. On

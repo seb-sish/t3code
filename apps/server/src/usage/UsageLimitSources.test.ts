@@ -35,6 +35,7 @@ it.effect("exposes only a safe MiniMax failure message in source snapshots", () 
       Layer.succeed(SecretResolver.SecretResolver, {
         read: (references) => Effect.succeed(references.map(() => undefined)),
         invalidate: () => Effect.void,
+        label: (provider) => Effect.succeed(provider),
       }),
       ServerSettings.layerTest({
         usageLimitSources: {
